@@ -256,6 +256,7 @@ export class GameRoom {
     let damaged = false;
     let damage = actor.sawed ? 2 : 1;
     let warded = false;
+    let killed = false;
 
     if (shell === "live") {
       actor.sawed = false;
@@ -269,6 +270,7 @@ export class GameRoom {
       if (target.health <= 0) {
         target.health = 0;
         target.alive = false;
+        killed = true;
       }
     }
 
@@ -295,7 +297,7 @@ export class GameRoom {
       this.turnDeadline = Math.max(now, this.roundReadyAt ?? now) + TURN_DURATION_MS;
     }
     this.updatedAt = now;
-    return { shell, selfShot, damaged, warded, damage: shell === "live" ? damage : 0, actorId: actor.id, targetId: target.id };
+    return { shell, selfShot, damaged, warded, killed, damage: shell === "live" ? damage : 0, actorId: actor.id, targetId: target.id };
   }
 
   advanceTurn(fromId = this.currentPlayerId) {

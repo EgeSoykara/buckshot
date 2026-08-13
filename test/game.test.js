@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { resolveAimTarget } from "../shared/aiming.js";
+import { minimumGunTrayClearance } from "../shared/table-layout.js";
 import {
   CHARACTER_RULES,
   cleanCharacter,
@@ -105,10 +106,29 @@ test("canı biten oyuncu elenir ve son kalan kazanır", () => {
   room.player("p2").health = 1;
   room.magazine = ["live"];
 
-  room.shoot("p1", "p2", 2000);
+  const shot = room.shoot("p1", "p2", 2000);
   assert.equal(room.phase, "finished");
   assert.equal(room.winnerId, "p1");
   assert.equal(room.player("p2").alive, false);
+  assert.equal(shot.killed, true);
+});
+
+test("ölüm olayı yalnızca son canı bitiren atışta yayınlanır", () => {
+  const room = new GameRoom("ABCDE", "p1", "Bir", "mariner");
+  room.addPlayer("p2", "İki", "host");
+  room.start("p1", 1000);
+  room.magazine = ["live", "live", "blank"];
+
+  const firstShot = room.shoot("p1", "p2", 2000);
+  assert.equal(firstShot.killed, false);
+  room.currentPlayerId = "p1";
+  room.player("p2").health = 1;
+  const finalShot = room.shoot("p1", "p2", 3000);
+  assert.equal(finalShot.killed, true);
+});
+
+test("eşya tepsileri altı hedef hattının dışında güvenli boşlukta kalır", () => {
+  assert.ok(minimumGunTrayClearance() > .3);
 });
 
 test("masa ekipmanları fişekleri, canı, hasarı ve sırayı değiştirir", () => {

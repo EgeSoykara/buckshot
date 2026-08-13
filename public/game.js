@@ -1,6 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
 import { CHARACTER_RULES } from "/shared/characters.js?v=20260813-characters-v1";
 import { resolveAimTarget } from "/shared/aiming.js?v=20260813-aiming-v2";
+import { ITEM_TRAY_RADIUS, SEAT_RADIUS, itemTrayAngle, radialPoint, seatAngle } from "/shared/table-layout.js?v=20260813-layout-v1";
 
 const $ = (selector) => document.querySelector(selector);
 const socket = window.io({ transports: ["websocket", "polling"] });
@@ -31,6 +32,7 @@ ui.roundLive = $("#round-live-count");
 ui.roundBlank = $("#round-blank-count");
 ui.roundShellList = $("#round-shell-list");
 ui.roundRevealStatus = $("#round-reveal-status");
+ui.deathBlood = $("#death-blood");
 ui.characterList = $("#character-list");
 ui.characterList.innerHTML = Object.entries(CHARACTER_RULES).map(([id, character], index) => `
   <button class="character-card ${index === 0 ? "selected" : ""}" type="button" role="radio" aria-checked="${index === 0}" data-character="${id}" title="${character.passive}: ${character.description}">
@@ -67,6 +69,7 @@ let shotVisualUntil = 0;
 let roundReadyUntil = 0;
 let roundAnimationStart = 0;
 let roundAnimationTimers = [];
+let deathBloodTimer;
 
 function isRoundLoading() {
   return state?.phase === "playing" && Date.now() < roundReadyUntil;
@@ -771,6 +774,14 @@ barrelAssembly.add(magazineCap);
 const barrelClamp = new THREE.Mesh(new THREE.BoxGeometry(.13, .48, .4), wornMetal);
 barrelClamp.position.set(2.75, -.02, 0);
 barrelAssembly.add(barrelClamp);
+const chamberCollar = new THREE.Mesh(new THREE.CylinderGeometry(.235, .255, .34, 24), wornMetal);
+chamberCollar.rotation.z = Math.PI / 2;
+chamberCollar.position.set(.12, .11, 0);
+barrelAssembly.add(chamberCollar);
+const chamberBand = new THREE.Mesh(new THREE.TorusGeometry(.242, .026, 10, 24), darkMetal);
+chamberBand.rotation.y = Math.PI / 2;
+chamberBand.position.set(.28, .11, 0);
+barrelAssembly.add(chamberBand);
 const muzzleBore = new THREE.Mesh(new THREE.CircleGeometry(.155, 24), gunBlack);
 muzzleBore.rotation.y = Math.PI / 2;
 muzzleBore.position.set(3.806, .13, 0);
@@ -782,6 +793,12 @@ pump.position.set(.35, -.17, 0);
 const pumpBody = new THREE.Mesh(new THREE.CylinderGeometry(.31, .34, 1.18, 16), woodDark);
 pumpBody.rotation.z = Math.PI / 2;
 pump.add(pumpBody);
+for (const end of [-.58, .58]) {
+  const ferrule = new THREE.Mesh(new THREE.TorusGeometry(.325, .025, 8, 20), darkMetal);
+  ferrule.rotation.y = Math.PI / 2;
+  ferrule.position.x = end;
+  pump.add(ferrule);
+}
 for (let x = -.46; x <= .46; x += .185) {
   const rib = new THREE.Mesh(new THREE.TorusGeometry(.345, .018, 7, 18), wood);
   rib.rotation.y = Math.PI / 2;
@@ -809,18 +826,34 @@ gun.add(receiverTop);
 const ejectionPort = new THREE.Mesh(new THREE.BoxGeometry(.55, .27, .025), gunBlack);
 ejectionPort.position.set(-1.42, .08, .365);
 gun.add(ejectionPort);
+for (const [x, y, width, height] of [[-1.42, .235, .64, .035], [-1.42, -.075, .64, .035], [-1.755, .08, .035, .275], [-1.085, .08, .035, .275]]) {
+  const portEdge = new THREE.Mesh(new THREE.BoxGeometry(width, height, .035), darkMetal);
+  portEdge.position.set(x, y, .382);
+  gun.add(portEdge);
+}
+const actionBolt = new THREE.Group();
 const exposedBolt = new THREE.Mesh(new THREE.BoxGeometry(.39, .16, .022), wornMetal);
 exposedBolt.position.set(-1.51, .08, .382);
-gun.add(exposedBolt);
+actionBolt.add(exposedBolt);
 const boltHandle = new THREE.Mesh(new THREE.SphereGeometry(.075, 16, 10), darkMetal);
 boltHandle.position.set(-1.2, .03, .43);
-gun.add(boltHandle);
+actionBolt.add(boltHandle);
+const extractor = new THREE.Mesh(new THREE.BoxGeometry(.13, .035, .035), gunBlack);
+extractor.position.set(-1.32, .12, .405);
+actionBolt.add(extractor);
+gun.add(actionBolt);
 const loadingPort = new THREE.Mesh(new THREE.BoxGeometry(.58, .025, .33), gunBlack);
 loadingPort.position.set(-1.48, -.42, 0);
 gun.add(loadingPort);
 const carrier = new THREE.Mesh(new THREE.BoxGeometry(.48, .018, .24), brassDetail);
 carrier.position.set(-1.47, -.438, 0);
 gun.add(carrier);
+const rearSight = new THREE.Mesh(new THREE.BoxGeometry(.16, .105, .25), gunBlack);
+rearSight.position.set(-1.05, .51, 0);
+gun.add(rearSight);
+const rearSightNotch = new THREE.Mesh(new THREE.BoxGeometry(.055, .12, .07), wornMetal);
+rearSightNotch.position.set(-1.02, .55, 0);
+gun.add(rearSightNotch);
 for (const x of [-1.92, -1.5]) {
   const pin = new THREE.Mesh(new THREE.CylinderGeometry(.045, .045, .025, 12), gunBlack);
   pin.rotation.x = Math.PI / 2;
@@ -1181,6 +1214,7 @@ function makeCharacter(characterId) {
   seat.userData.hit = 0;
   seat.userData.action = 0;
   seat.userData.blankPulse = 0;
+  seat.userData.exploded = false;
   seat.userData.baseAngle = 0;
   seat.userData.label = null;
   seat.userData.labelName = "";
@@ -1189,9 +1223,10 @@ function makeCharacter(characterId) {
 }
 
 for (let i = 0; i < 6; i += 1) {
-  const angle = i / 6 * Math.PI * 2 + Math.PI / 2;
+  const angle = seatAngle(i);
+  const position = radialPoint(angle, SEAT_RADIUS);
   const seat = makeCharacter(characterProfiles[i].id);
-  seat.position.set(Math.cos(angle) * 5.75, -1.08, Math.sin(angle) * 5.75);
+  seat.position.set(position.x, -1.08, position.z);
   seat.rotation.y = -angle + Math.PI / 2;
   seat.userData.baseAngle = seat.rotation.y;
   seat.visible = false;
@@ -1214,12 +1249,13 @@ function disposeGroup(group) {
   });
 }
 
-function ensureSeatCharacter(index, characterId) {
+function ensureSeatCharacter(index, characterId, forceRebuild = false) {
   const currentSeat = seats[index];
-  if (currentSeat?.userData.characterId === characterId) return currentSeat;
-  const angle = index / 6 * Math.PI * 2 + Math.PI / 2;
+  if (!forceRebuild && currentSeat?.userData.characterId === characterId) return currentSeat;
+  const angle = seatAngle(index);
+  const position = radialPoint(angle, SEAT_RADIUS);
   const nextSeat = makeCharacter(characterId);
-  nextSeat.position.set(Math.cos(angle) * 5.75, -1.08, Math.sin(angle) * 5.75);
+  nextSeat.position.set(position.x, -1.08, position.z);
   nextSeat.rotation.y = -angle + Math.PI / 2;
   nextSeat.userData.baseAngle = nextSeat.rotation.y;
   nextSeat.visible = currentSeat?.visible ?? false;
@@ -1232,23 +1268,167 @@ function ensureSeatCharacter(index, characterId) {
   return nextSeat;
 }
 
+const deathEffects = new THREE.Group();
+const deathBodies = [];
+const deathPuddles = [];
+const bloodMaterial = new THREE.MeshPhysicalMaterial({ color: 0x690705, emissive: 0x250100, emissiveIntensity: .4, roughness: .58, metalness: .02, clearcoat: .32, clearcoatRoughness: .4 });
+const fleshMaterial = new THREE.MeshStandardMaterial({ color: 0x7c2419, emissive: 0x260402, emissiveIntensity: .24, roughness: .8 });
+const boneMaterial = new THREE.MeshStandardMaterial({ color: 0xd0c0a2, roughness: .9 });
+const deathLight = new THREE.PointLight(0xbd160b, 0, 8, 2);
+let deathLightEnergy = 0;
+scene.add(deathEffects, deathLight);
+
+function clearDeathEffects(ownerId = null) {
+  const materials = new Set();
+  for (let index = deathBodies.length - 1; index >= 0; index -= 1) {
+    const body = deathBodies[index];
+    if (ownerId && body.ownerId !== ownerId) continue;
+    deathEffects.remove(body.mesh);
+    body.mesh.geometry?.dispose();
+    if (body.ownedMaterial) materials.add(body.mesh.material);
+    deathBodies.splice(index, 1);
+  }
+  for (let index = deathPuddles.length - 1; index >= 0; index -= 1) {
+    const puddle = deathPuddles[index];
+    if (ownerId && puddle.ownerId !== ownerId) continue;
+    deathEffects.remove(puddle.mesh);
+    puddle.mesh.geometry?.dispose();
+    puddle.mesh.material?.dispose();
+    deathPuddles.splice(index, 1);
+  }
+  materials.forEach((material) => material?.dispose());
+}
+
+function showDeathBlood(index) {
+  const seat = seats[index];
+  if (!seat || !ui.deathBlood) return;
+  const projected = seat.localToWorld(new THREE.Vector3(0, 1.15, -.15)).project(camera);
+  const x = Math.min(92, Math.max(8, (projected.x * .5 + .5) * 100));
+  const y = Math.min(86, Math.max(12, (-projected.y * .5 + .5) * 100));
+  ui.deathBlood.style.setProperty("--blood-x", `${x}%`);
+  ui.deathBlood.style.setProperty("--blood-y", `${y}%`);
+  ui.deathBlood.innerHTML = Array.from({ length: 24 }, (_, particle) => {
+    const angle = particle / 24 * Math.PI * 2 + (particle % 5) * .11;
+    const distance = 90 + (particle % 7) * 25;
+    const dx = Math.cos(angle) * distance;
+    const dy = Math.sin(angle) * distance + 55 + (particle % 3) * 18;
+    const size = 5 + (particle % 6) * 2.4;
+    return `<i style="--blood-dx:${dx.toFixed(1)}px;--blood-dy:${dy.toFixed(1)}px;--blood-size:${size.toFixed(1)}px;--blood-rotate:${(angle * 57.3).toFixed(1)}deg;--blood-delay:${(particle % 4) * .018}s;--blood-duration:${1.05 + (particle % 5) * .11}s"></i>`;
+  }).join("");
+  clearTimeout(deathBloodTimer);
+  ui.deathBlood.classList.remove("hidden");
+  void ui.deathBlood.offsetWidth;
+  deathBloodTimer = setTimeout(() => {
+    ui.deathBlood.classList.add("hidden");
+    ui.deathBlood.innerHTML = "";
+  }, 1850);
+}
+
+function addDeathBody({ ownerId, mesh, position, velocity, spin, floorY, ownedMaterial = false }) {
+  mesh.position.copy(position);
+  mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+  mesh.castShadow = mesh.receiveShadow = true;
+  deathEffects.add(mesh);
+  deathBodies.push({ ownerId, mesh, velocity, spin, floorY, bounces: 0, bornAt: performance.now(), ownedMaterial });
+}
+
+function explodeCharacter(index, ownerId) {
+  const seat = seats[index];
+  if (!seat?.visible || seat.userData.exploded) return;
+  seat.userData.exploded = true;
+  seat.userData.body.visible = false;
+  seat.userData.head.visible = false;
+  seat.userData.activeRing.visible = false;
+  seat.userData.targetRing.visible = false;
+  if (seat.userData.label) seat.userData.label.visible = false;
+
+  const profile = characterProfileById.get(seat.userData.characterId) ?? characterProfiles[0];
+  const coatMaterial = new THREE.MeshStandardMaterial({ color: profile.coat, roughness: .82, bumpMap: organicBump, bumpScale: .018 });
+  const skinMaterial = new THREE.MeshStandardMaterial({ color: profile.skin, emissive: 0x2d0906, emissiveIntensity: .2, roughness: .78 });
+  const worldQuaternion = seat.getWorldQuaternion(new THREE.Quaternion());
+  const blastAxis = seat.position.clone().setY(0).normalize();
+  const worldAt = (x, y, z) => seat.localToWorld(new THREE.Vector3(x, y, z));
+  const launch = (side, lift = 2.8, force = 1.25) => new THREE.Vector3(
+    blastAxis.x * force + side * (1.05 + Math.random() * .9),
+    lift + Math.random() * 1.9,
+    blastAxis.z * force + (Math.random() - .5) * 1.6
+  );
+  const fragments = [
+    { geometry: new THREE.DodecahedronGeometry(.43, 0), material: skinMaterial, local: [0, 1.69, -.08], side: -.25, lift: 3.6 },
+    { geometry: new THREE.DodecahedronGeometry(.48, 0), material: coatMaterial, local: [-.18, .62, 0], side: -.62, lift: 3.1 },
+    { geometry: new THREE.DodecahedronGeometry(.46, 0), material: coatMaterial, local: [.2, .38, .02], side: .58, lift: 2.9 },
+    { geometry: new THREE.CylinderGeometry(.14, .18, .72, 8), material: coatMaterial, local: [-.62, .48, -.25], side: -1.1, lift: 3.25 },
+    { geometry: new THREE.CylinderGeometry(.14, .18, .72, 8), material: coatMaterial, local: [.62, .48, -.25], side: 1.1, lift: 3.45 },
+    { geometry: new THREE.CylinderGeometry(.17, .2, .82, 8), material: coatMaterial, local: [-.34, -.48, .05], side: -.72, lift: 2.55 },
+    { geometry: new THREE.CylinderGeometry(.17, .2, .82, 8), material: coatMaterial, local: [.34, -.48, .05], side: .8, lift: 2.75 },
+    { geometry: new THREE.CylinderGeometry(.085, .095, .46, 8), material: fleshMaterial, local: [-.23, .72, -.02], side: -.32, lift: 3.9 },
+    { geometry: new THREE.CylinderGeometry(.075, .085, .42, 8), material: boneMaterial, local: [.2, .68, -.01], side: .4, lift: 4.15 },
+    { geometry: new THREE.TetrahedronGeometry(.24, 0), material: fleshMaterial, local: [0, 1.22, -.04], side: .18, lift: 3.75 }
+  ];
+  fragments.forEach((fragment) => {
+    const mesh = new THREE.Mesh(fragment.geometry, fragment.material);
+    mesh.quaternion.copy(worldQuaternion);
+    addDeathBody({
+      ownerId,
+      mesh,
+      position: worldAt(...fragment.local),
+      velocity: launch(fragment.side, fragment.lift, 1.1 + Math.random() * .75),
+      spin: new THREE.Vector3((Math.random() - .5) * 12, (Math.random() - .5) * 14, (Math.random() - .5) * 12),
+      floorY: -2.52,
+      ownedMaterial: fragment.material === coatMaterial || fragment.material === skinMaterial
+    });
+  });
+  for (let particle = 0; particle < 32; particle += 1) {
+    const size = .025 + Math.random() * .065;
+    const drop = new THREE.Mesh(new THREE.SphereGeometry(size, 7, 5), bloodMaterial);
+    const side = (Math.random() - .5) * 2.8;
+    addDeathBody({
+      ownerId,
+      mesh: drop,
+      position: worldAt((Math.random() - .5) * .75, .45 + Math.random() * 1.25, -.08),
+      velocity: launch(side, 1.8 + Math.random() * 3.3, .45 + Math.random() * 1.3),
+      spin: new THREE.Vector3(Math.random() * 8, Math.random() * 8, Math.random() * 8),
+      floorY: -2.56
+    });
+  }
+
+  const stainDirection = seat.position.clone().setY(0).normalize().multiplyScalar(4.62);
+  const puddleMaterial = new THREE.MeshStandardMaterial({ color: 0x4c0302, emissive: 0x160000, emissiveIntensity: .35, roughness: .38, transparent: true, opacity: .82, depthWrite: false });
+  const puddle = new THREE.Mesh(new THREE.CircleGeometry(.84, 30), puddleMaterial);
+  puddle.rotation.x = -Math.PI / 2;
+  puddle.rotation.z = Math.random() * Math.PI;
+  puddle.position.set(stainDirection.x, -.775, stainDirection.z);
+  puddle.scale.set(.08, .08, .08);
+  puddle.receiveShadow = true;
+  deathEffects.add(puddle);
+  deathPuddles.push({ ownerId, mesh: puddle, bornAt: performance.now() });
+
+  deathLight.position.copy(worldAt(0, .8, 0));
+  deathLightEnergy = 1;
+  cameraShake = 1.75;
+  showDeathBlood(index);
+  playTone(48, .62, "sawtooth", .12);
+  setTimeout(() => playTone(72, .38, "square", .07), 90);
+}
+
 const itemTrays = [];
 const trayMaterial = new THREE.MeshStandardMaterial({ color: 0x181c18, roughness: .84, metalness: .08 });
 const trayEdgeMaterial = new THREE.MeshStandardMaterial({ color: 0x706149, roughness: .48, metalness: .36 });
 const itemSlotPositions = [[-.78, -.27], [0, -.27], [.78, -.27], [-.42, .3], [.42, .3]];
 for (let i = 0; i < 6; i += 1) {
-  const angle = i / 6 * Math.PI * 2 + Math.PI / 2;
+  const angle = itemTrayAngle(i);
+  const position = radialPoint(angle, ITEM_TRAY_RADIUS);
   const tray = new THREE.Group();
-  const base = new THREE.Mesh(new THREE.BoxGeometry(2.72, .1, 1.18), trayMaterial.clone());
+  const base = new THREE.Mesh(new THREE.BoxGeometry(2.72, .1, 1), trayMaterial.clone());
   base.receiveShadow = true;
   tray.add(base);
-  for (const z of [-.57, .57]) {
+  for (const z of [-.48, .48]) {
     const edge = new THREE.Mesh(new THREE.BoxGeometry(2.82, .12, .055), trayEdgeMaterial);
     edge.position.set(0, .08, z);
     tray.add(edge);
   }
   for (const x of [-1.38, 1.38]) {
-    const edge = new THREE.Mesh(new THREE.BoxGeometry(.055, .12, 1.18), trayEdgeMaterial);
+    const edge = new THREE.Mesh(new THREE.BoxGeometry(.055, .12, 1), trayEdgeMaterial);
     edge.position.set(x, .08, 0);
     tray.add(edge);
   }
@@ -1263,7 +1443,7 @@ for (let i = 0; i < 6; i += 1) {
     slot.position.set(x, .075, z);
     tray.add(slot);
   }
-  tray.position.set(Math.cos(angle) * 3.65, -.72, Math.sin(angle) * 3.65);
+  tray.position.set(position.x, -.72, position.z);
   tray.rotation.y = -angle + Math.PI / 2;
   tray.userData.props = props;
   tray.userData.signature = "";
@@ -1369,15 +1549,19 @@ const dust = new THREE.Points(dustGeometry, new THREE.PointsMaterial({ color: 0x
 scene.add(dust);
 
 function syncSeats(players) {
-  players.forEach((player, index) => ensureSeatCharacter(index, player.character));
+  players.forEach((player, index) => {
+    const reviveExplodedSeat = Boolean(player.alive && seats[index]?.userData.exploded);
+    if (reviveExplodedSeat) clearDeathEffects(player.id);
+    ensureSeatCharacter(index, player.character, reviveExplodedSeat);
+  });
   seats.forEach((seat, index) => {
     seat.visible = index < players.length;
     if (index < players.length) {
       const player = players[index];
-      seat.scale.setScalar(player.alive ? 1 : .88);
-      seat.rotation.z = player.alive ? 0 : -.18;
-      seat.userData.activeRing.visible = player.id === state.currentPlayerId;
-      seat.userData.targetRing.visible = player.id === effectiveAimTargetId();
+      seat.scale.setScalar(seat.userData.exploded ? 1 : (player.alive ? 1 : .88));
+      seat.rotation.z = seat.userData.exploded ? 0 : (player.alive ? 0 : -.18);
+      seat.userData.activeRing.visible = !seat.userData.exploded && player.id === state.currentPlayerId;
+      seat.userData.targetRing.visible = !seat.userData.exploded && player.id === effectiveAimTargetId();
       if (seat.userData.labelName !== player.name) {
         if (seat.userData.label) seat.remove(seat.userData.label);
         seat.userData.label = makeNameSprite(player.name, player.id === state.viewerId ? "#d7ff3f" : "#8b877d");
@@ -1385,6 +1569,7 @@ function syncSeats(players) {
         seat.add(seat.userData.label);
         seat.userData.labelName = player.name;
       }
+      if (seat.userData.label) seat.userData.label.visible = !seat.userData.exploded;
     }
   });
   const current = players.find((player) => player.id === state.currentPlayerId);
@@ -1450,7 +1635,7 @@ function showShotResult(result) {
   ui.shotRoute.textContent = `${actorName} → ${targetLabel}`;
   ui.shotOutcome.textContent = live ? "DOLU!" : "BOŞ · KLİK";
   ui.shotDetail.textContent = live
-    ? (result.damage > 0 ? `${target?.name ?? "Hedef"} ${result.damage} can kaybetti` : "Atış perde tarafından durduruldu")
+    ? (result.killed ? `${target?.name ?? "Hedef"} parçalandı · nihai ölüm` : (result.damage > 0 ? `${target?.name ?? "Hedef"} ${result.damage} can kaybetti` : "Atış perde tarafından durduruldu"))
     : (result.selfShot ? "Hasar yok · sıra aynı oyuncuda" : "Hasar yok · sıra ilerliyor");
   clearTimeout(shotResultTimer);
   ui.shotResult.classList.remove("hidden", "live", "blank");
@@ -1463,7 +1648,7 @@ function animateShot(result) {
   const live = result.shell === "live";
   const now = performance.now();
   shotTargetId = result.targetId;
-  shotVisualUntil = now + (live ? 1900 : 2300);
+  shotVisualUntil = now + (result.killed ? 2700 : (live ? 1900 : 2300));
   hoveredPlayerId = null;
   selectedTargetId = null;
   aimGunAt(result.targetId);
@@ -1489,9 +1674,10 @@ function animateShot(result) {
     void ui.flash.offsetWidth;
     ui.flash.classList.add("fire");
     muzzleEnergy = 1;
-    cameraShake = 1;
+    cameraShake = result.killed ? 1.4 : 1;
     playTone(85, .42, "sawtooth", .15);
     setTimeout(() => ejectSpentShell(result.shell), 235);
+    if (result.killed && targetIndex >= 0) setTimeout(() => explodeCharacter(targetIndex, result.targetId), 105);
   } else {
     ui.flash.classList.add("blank");
     cameraShake = .16;
@@ -1542,6 +1728,9 @@ function frame() {
   gun.position.z = Math.sin(gun.rotation.y) * gunRecoil * .36;
   gun.position.y = -.2 + Math.sin(time * .7) * .014;
   pump.position.x = .35 - pumpAction * .52;
+  actionBolt.position.x = -pumpAction * .3;
+  carrier.position.y = -.438 + pumpAction * .075;
+  carrier.rotation.z = pumpAction * -.12;
   muzzleLight.position.x = barrelAssembly.position.x + muzzle.position.x * barrelAssembly.scale.x + .22;
   muzzleLight.position.y = barrelAssembly.position.y + muzzle.position.y;
   muzzleLight.intensity = muzzleEnergy * 85;
@@ -1599,8 +1788,45 @@ function frame() {
     }
   }
 
+  deathLightEnergy *= .82;
+  deathLight.intensity = deathLightEnergy * 115;
+  for (let index = deathBodies.length - 1; index >= 0; index -= 1) {
+    const body = deathBodies[index];
+    body.velocity.y -= 5.7 * delta;
+    body.velocity.multiplyScalar(.994);
+    body.mesh.position.addScaledVector(body.velocity, delta);
+    body.mesh.rotation.x += body.spin.x * delta;
+    body.mesh.rotation.y += body.spin.y * delta;
+    body.mesh.rotation.z += body.spin.z * delta;
+    const radius = Math.hypot(body.mesh.position.x, body.mesh.position.z);
+    const surfaceY = radius < 5.02 ? -.74 : body.floorY;
+    if (body.mesh.position.y < surfaceY) {
+      body.mesh.position.y = surfaceY;
+      if (Math.abs(body.velocity.y) > .24 && body.bounces < 3) {
+        body.velocity.y = Math.abs(body.velocity.y) * .3;
+        body.velocity.x *= .64;
+        body.velocity.z *= .64;
+        body.spin.multiplyScalar(.7);
+        body.bounces += 1;
+      } else {
+        body.velocity.set(0, 0, 0);
+        body.spin.multiplyScalar(.8);
+      }
+    }
+  }
+  deathPuddles.forEach((puddle) => {
+    const age = Math.min(1, (frameNow - puddle.bornAt) / 720);
+    puddle.mesh.scale.set(1.25 * age, .72 * age, 1);
+    puddle.mesh.material.opacity = .82 - Math.sin(age * Math.PI) * .08;
+  });
+
   seats.forEach((seat, index) => {
     if (!seat.visible) return;
+    if (seat.userData.exploded) {
+      seat.position.y = -1.08;
+      seat.rotation.z = 0;
+      return;
+    }
     const player = state?.players[index];
     const active = player?.id === state?.currentPlayerId;
     seat.userData.hit *= .88;
