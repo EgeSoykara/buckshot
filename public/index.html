@@ -19,7 +19,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=DM+Mono:wght@400;500&family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=20260813-eldritch-home" />
+    <link rel="stylesheet" href="/styles.css?v=20260813-finished-v2" />
   </head>
   <body>
     <canvas id="scene" aria-hidden="true"></canvas>
@@ -87,28 +87,9 @@
         <section class="character-select" aria-labelledby="character-title">
           <div class="character-heading">
             <div><span>[ 02 / KİMLİK ]</span><h2 id="character-title">KARAKTERİNİ SEÇ</h2></div>
-            <p><i></i> 6 MEVCUT DOSYA · SEÇİM YERELDE KAYDEDİLİR</p>
+            <p><i></i> 6 MEVCUT DOSYA · HER KİMLİĞİN GERÇEK BİR PASİFİ VAR</p>
           </div>
-          <div id="character-list" class="character-list" role="radiogroup" aria-label="Karakter seçimi">
-            <button class="character-card selected" type="button" role="radio" aria-checked="true" data-character="mariner">
-              <span class="portrait portrait-mariner"><i>01</i></span><span class="character-meta"><b>DENİZCİ</b><small>DERİN SU NEFESİ</small></span><em>THE MARINER</em>
-            </button>
-            <button class="character-card" type="button" role="radio" aria-checked="false" data-character="witness">
-              <span class="portrait portrait-witness"><i>02</i></span><span class="character-meta"><b>TANIK</b><small>HER ŞEYİ GÖRÜR</small></span><em>THE WITNESS</em>
-            </button>
-            <button class="character-card" type="button" role="radio" aria-checked="false" data-character="host">
-              <span class="portrait portrait-host"><i>03</i></span><span class="character-meta"><b>KONAK</b><small>İÇİNDEKİ UYANIK</small></span><em>THE HOST</em>
-            </button>
-            <button class="character-card" type="button" role="radio" aria-checked="false" data-character="scholar">
-              <span class="portrait portrait-scholar"><i>04</i></span><span class="character-meta"><b>ÂLİM</b><small>YASAK BİLGİ</small></span><em>THE SCHOLAR</em>
-            </button>
-            <button class="character-card" type="button" role="radio" aria-checked="false" data-character="penitent">
-              <span class="portrait portrait-penitent"><i>05</i></span><span class="character-meta"><b>GÜNAHKÂR</b><small>BEDEL ÖDENDİ</small></span><em>THE PENITENT</em>
-            </button>
-            <button class="character-card" type="button" role="radio" aria-checked="false" data-character="hollow">
-              <span class="portrait portrait-hollow"><i>06</i></span><span class="character-meta"><b>BOŞLUK</b><small>YÜZÜ YOK</small></span><em>THE HOLLOW</em>
-            </button>
-          </div>
+          <div id="character-list" class="character-list" role="radiogroup" aria-label="Karakter seçimi"></div>
           <p class="fine-print">Oyuna girerek 13 yaşından büyük olduğunu onaylarsın.</p>
         </section>
         <div class="home-edge-data" aria-hidden="true"><span>CHAMBER STATUS / DORMANT</span><i></i><b>∞</b></div>
@@ -149,6 +130,10 @@
             </div>
             <h2 id="turn-title">HEDEFİNİ SEÇ</h2>
             <p id="last-action">İlk hazne yüklendi.</p>
+            <div id="passive-panel" class="passive-panel">
+              <span id="passive-name">KARAKTER PASİFİ</span>
+              <b id="passive-description">Kimliğinin masadaki etkisi burada görünür.</b>
+            </div>
             <div id="target-list" class="target-list"></div>
             <div id="item-list" class="item-list"></div>
           </div>
@@ -179,13 +164,13 @@
         <article><b>01</b><h3>HEDEF SEÇ</h3><p>Sıranda kendini veya hayatta olan başka bir oyuncuyu hedefle.</p></article>
         <article><b>02</b><h3>RİSK AL</h3><p>Kendine gelen boş fişek sıranı korur. Diğer atışlarda sıra ilerler.</p></article>
         <article><b>03</b><h3>EKİPMAN KULLAN</h3><p>Büyüteç, bira, sigara, kelepçe, el testeresi ve diğer ekipmanlarla masayı değiştir.</p></article>
-        <article><b>04</b><h3>SON KALAN OL</h3><p>Üç canını koru. Masadaki son oyuncu olduğunda maçı kazanırsın.</p></article>
+        <article><b>04</b><h3>KİMLİĞİNİ KULLAN</h3><p>Seçtiğin karakterin can, ekipman, bilgi veya savunma pasifini doğru anda avantaja çevir.</p></article>
       </div>
       <div class="arsenal-line">BÜYÜTEÇ · BİRA · SİGARA · KELEPÇE · EL TESTERESİ · TELEFON · ÇEVİRİCİ · ADRENALİN · ESKİ İLAÇ</div>
       <p class="rules-note">Her sıra 30 saniye · Oyun 2–6 kişiyle başlar · Hesap gerekmez</p>
     </dialog>
 
     <script src="/socket.io/socket.io.js"></script>
-    <script type="module" src="/game.js?v=20260813-eldritch-home"></script>
+    <script type="module" src="/game.js?v=20260813-finished-v10"></script>
   </body>
 </html>

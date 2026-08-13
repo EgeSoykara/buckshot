@@ -1,4 +1,5 @@
 import * as THREE from "/vendor/three/three.module.js";
+import { CHARACTER_RULES } from "/shared/characters.js?v=20260813-characters-v1";
 
 const $ = (selector) => document.querySelector(selector);
 const socket = window.io({ transports: ["websocket", "polling"] });
@@ -10,6 +11,7 @@ const ui = {
   start: $("#start-button"), hostHint: $("#host-hint"), gameHud: $("#game-hud"),
   ammo: $("#ammo-readout"), live: $("#live-count"), blank: $("#blank-count"), round: $("#round-label"),
   turnKicker: $("#turn-kicker"), turnTitle: $("#turn-title"), lastAction: $("#last-action"),
+  passivePanel: $("#passive-panel"), passiveName: $("#passive-name"), passiveDescription: $("#passive-description"),
   targetList: $("#target-list"), itemList: $("#item-list"), timerBar: $("#timer-bar"), timerText: $("#timer-text"),
   winner: $("#winner-panel"), winnerName: $("#winner-name"), restart: $("#restart-button"), restartHint: $("#restart-hint"),
   toast: $("#toast"), secret: $("#secret-toast"), secretMessage: $("#secret-message"), flash: $("#flash"), sound: $("#sound-toggle")
@@ -21,6 +23,13 @@ ui.reticle = $("#aim-reticle");
 ui.turnAnnouncer = $("#turn-announcer");
 ui.turnAnnouncerName = $("#turn-announcer-name");
 ui.characterList = $("#character-list");
+ui.characterList.innerHTML = Object.entries(CHARACTER_RULES).map(([id, character], index) => `
+  <button class="character-card ${index === 0 ? "selected" : ""}" type="button" role="radio" aria-checked="${index === 0}" data-character="${id}" title="${character.passive}: ${character.description}">
+    <span class="portrait portrait-${id}"><i>${String(index + 1).padStart(2, "0")}</i></span>
+    <span class="character-meta"><b>${character.name}</b><small>${character.passive} · ${character.short}</small></span>
+    <em>${character.english}</em>
+  </button>
+`).join("");
 ui.characterButtons = [...document.querySelectorAll(".character-card")];
 
 const itemInfo = {
@@ -44,7 +53,7 @@ let hoveredPlayerId = null;
 let selectedTargetId = null;
 let previousCurrentPlayerId = null;
 
-const characterIds = new Set(ui.characterButtons.map((button) => button.dataset.character));
+const characterIds = new Set(Object.keys(CHARACTER_RULES));
 let selectedCharacter = localStorage.getItem("last-chamber-character");
 if (!characterIds.has(selectedCharacter)) selectedCharacter = "mariner";
 
@@ -67,6 +76,15 @@ function selectCharacter(characterId, announce = false) {
 
 selectCharacter(selectedCharacter);
 ui.characterButtons.forEach((button) => button.addEventListener("click", () => selectCharacter(button.dataset.character, true)));
+ui.characterList.addEventListener("keydown", (event) => {
+  if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+  event.preventDefault();
+  const direction = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1;
+  const currentIndex = ui.characterButtons.findIndex((button) => button.dataset.character === selectedCharacter);
+  const nextButton = ui.characterButtons[(currentIndex + direction + ui.characterButtons.length) % ui.characterButtons.length];
+  selectCharacter(nextButton.dataset.character, true);
+  nextButton.focus();
+});
 
 if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
   ui.home.addEventListener("pointermove", (event) => {
@@ -112,12 +130,12 @@ function joinRoom() {
   const code = ui.code.value.trim().toUpperCase();
   if (!name) return;
   if (code.length !== 5) return showToast("5 haneli oda kodunu yaz.", true);
-  socket.emit("room:join", { code, name });
+  socket.emit("room:join", { code, name, character: selectedCharacter });
 }
 
 ui.create.addEventListener("click", () => {
   const name = saveName();
-  if (name) socket.emit("room:create", { name });
+  if (name) socket.emit("room:create", { name, character: selectedCharacter });
 });
 ui.join.addEventListener("click", joinRoom);
 ui.code.addEventListener("keydown", (event) => { if (event.key === "Enter") joinRoom(); });
@@ -207,11 +225,11 @@ function renderState() {
   ui.roomCode.textContent = state.code;
   ui.playerCount.textContent = `${state.players.length}/6`;
   ui.playerList.innerHTML = state.players.map((player, index) => {
-    const hearts = Array.from({ length: 3 }, (_, heart) => `<i class="heart ${heart >= player.health ? "empty" : ""}"></i>`).join("");
+    const hearts = Array.from({ length: player.maxHealth }, (_, heart) => `<i class="heart ${heart >= player.health ? "empty" : ""}"></i>`).join("");
     const flags = [player.id === state.hostId ? "ODA SAHİBİ" : "", !player.connected ? "KOPTU" : "", player.skipTurns ? "KELEPÇELİ" : "", player.sawed ? "KESİK NAMLU" : "", player.items.length ? `${player.items.length} EKİPMAN` : ""].filter(Boolean).join(" · ");
     return `<div class="player-card ${player.id === state.currentPlayerId ? "current" : ""} ${!player.alive ? "dead" : ""} ${!player.connected ? "disconnected" : ""}">
       <span class="player-index">${String(index + 1).padStart(2, "0")}</span>
-      <div class="player-meta"><b>${escapeHtml(player.name)}${player.id === state.viewerId ? " · SEN" : ""}</b><span>${flags || (player.alive ? "MASADA" : "ELENDİ")}</span></div>
+      <div class="player-meta"><b>${escapeHtml(player.name)}${player.id === state.viewerId ? " · SEN" : ""}</b><span><strong>${escapeHtml(player.characterName)}</strong> · ${flags || (player.alive ? "MASADA" : "ELENDİ")}</span></div>
       <div class="hearts">${hearts}</div>
     </div>`;
   }).join("");
@@ -235,6 +253,10 @@ function renderState() {
     ui.turnKicker.textContent = myTurn ? "SIRA SENDE" : `${current?.name ?? "—"} OYNUYOR`;
     ui.turnTitle.textContent = myTurn ? "HEDEFİNİ SEÇ" : "MASAYI İZLE";
     ui.lastAction.textContent = state.lastAction;
+    const myCharacter = CHARACTER_RULES[me?.character];
+    ui.passiveName.textContent = `${myCharacter?.name ?? "KARAKTER"} / ${myCharacter?.passive ?? "PASİF"}`;
+    ui.passiveDescription.textContent = state.characterInsight?.message ?? myCharacter?.description ?? "Kimliğinin masadaki etkisi etkin.";
+    ui.passivePanel.classList.toggle("insight", Boolean(state.characterInsight));
     if (state.currentPlayerId && state.currentPlayerId !== previousCurrentPlayerId) {
       hoveredPlayerId = null;
       selectedTargetId = null;
@@ -315,51 +337,52 @@ setInterval(() => {
   ui.timerBar.style.width = `${Math.min(100, (remaining / 30_000) * 100)}%`;
 }, 200);
 
-// Procedural Three.js table. No external art assets are used.
+// Procedural Three.js table and characters. Every seat is rebuilt from the server-authoritative identity.
 const renderer = new THREE.WebGLRenderer({ canvas: $("#scene"), antialias: true, alpha: false, powerPreference: "high-performance" });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.4));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.36;
+renderer.toneMappingExposure = 1.42;
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xb9b7aa);
-scene.fog = new THREE.FogExp2(0xc8c5b8, 0.011);
+scene.background = new THREE.Color(0x06100f);
+scene.fog = new THREE.FogExp2(0x0a1d1a, 0.023);
 const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, .1, 100);
 camera.position.set(8.6, 7.1, 10.8);
 camera.lookAt(0, -.2, 0);
 
-scene.add(new THREE.HemisphereLight(0xfff8dc, 0x777b70, 1.32));
-const keyLight = new THREE.SpotLight(0xfff0c2, 170, 38, Math.PI / 3.6, .72, 1.15);
+scene.add(new THREE.HemisphereLight(0xb9d9cf, 0x020403, 1.65));
+scene.add(new THREE.AmbientLight(0x789e94, 1.55));
+const keyLight = new THREE.SpotLight(0xd9eadf, 310, 36, Math.PI / 3.7, .7, 1.2);
 keyLight.position.set(-3, 10, 4);
 keyLight.castShadow = true;
 keyLight.shadow.mapSize.set(1024, 1024);
 scene.add(keyLight);
-const fillLight = new THREE.SpotLight(0xcde9f0, 95, 34, Math.PI / 2.8, .8, 1.1);
+const fillLight = new THREE.SpotLight(0x6fb8b0, 165, 30, Math.PI / 2.8, .82, 1.15);
 fillLight.position.set(8, 7, 6);
 fillLight.target.position.set(0, 0, 0);
 scene.add(fillLight, fillLight.target);
-const rimLight = new THREE.PointLight(0xffd79b, 36, 22, 2);
+const rimLight = new THREE.PointLight(0xb8653c, 92, 20, 2);
 rimLight.position.set(-5, 3.5, -2.5);
 scene.add(rimLight);
-const clinicalLight = new THREE.PointLight(0x9dd8d0, 24, 18, 2);
+const clinicalLight = new THREE.PointLight(0x4da89b, 82, 18, 2);
 clinicalLight.position.set(5, 3, -4);
 scene.add(clinicalLight);
 
-const floor = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.MeshStandardMaterial({ color: 0x9f9b8b, roughness: .86 }));
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.MeshStandardMaterial({ color: 0x060b0a, roughness: .94 }));
 floor.rotation.x = -Math.PI / 2;
 floor.position.y = -2.65;
 floor.receiveShadow = true;
 scene.add(floor);
-const floorGrid = new THREE.GridHelper(80, 80, 0x8f9188, 0xd8d5c8);
+const floorGrid = new THREE.GridHelper(80, 80, 0x31534c, 0x10201d);
 floorGrid.position.y = -2.635;
 floorGrid.material.transparent = true;
-floorGrid.material.opacity = .34;
+floorGrid.material.opacity = .28;
 scene.add(floorGrid);
 
-const wallMaterial = new THREE.MeshStandardMaterial({ color: 0xb9b5a7, roughness: .88, side: THREE.DoubleSide });
+const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x111917, roughness: .92, side: THREE.DoubleSide });
 const backWall = new THREE.Mesh(new THREE.PlaneGeometry(30, 14), wallMaterial);
 backWall.position.set(0, 3.5, -9);
 backWall.receiveShadow = true;
@@ -371,22 +394,22 @@ for (const side of [-1, 1]) {
   sideWall.receiveShadow = true;
   scene.add(sideWall);
 }
-const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), new THREE.MeshStandardMaterial({ color: 0xd9d6ca, roughness: .92, side: THREE.DoubleSide }));
+const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), new THREE.MeshStandardMaterial({ color: 0x090f0e, roughness: .96, side: THREE.DoubleSide }));
 ceiling.position.y = 8.1;
 ceiling.rotation.x = Math.PI / 2;
 scene.add(ceiling);
 for (let x = -12; x <= 12; x += 4) {
-  const beam = new THREE.Mesh(new THREE.BoxGeometry(.13, 12, .2), new THREE.MeshStandardMaterial({ color: 0x9e9b90, roughness: .7, metalness: .25 }));
+  const beam = new THREE.Mesh(new THREE.BoxGeometry(.13, 12, .2), new THREE.MeshStandardMaterial({ color: 0x27302d, roughness: .72, metalness: .32 }));
   beam.position.set(x, 2.8, -8.8);
   scene.add(beam);
 }
-const fluorescentMaterial = new THREE.MeshStandardMaterial({ color: 0xfffdec, emissive: 0xe9fff5, emissiveIntensity: 2.7, roughness: .2 });
+const fluorescentMaterial = new THREE.MeshStandardMaterial({ color: 0x71867f, emissive: 0x47776d, emissiveIntensity: 1.3, roughness: .34 });
 for (const x of [-4.2, 0, 4.2]) {
   for (const z of [-3.4, 3.4]) {
     const panel = new THREE.Mesh(new THREE.BoxGeometry(3.25, .13, 1.08), fluorescentMaterial);
     panel.position.set(x, 7.92, z);
     scene.add(panel);
-    const panelLight = new THREE.PointLight(0xe8fff5, 19, 11, 1.6);
+    const panelLight = new THREE.PointLight(0x8dbdb0, 28, 10, 1.8);
     panelLight.position.set(x, 7.45, z);
     scene.add(panelLight);
   }
@@ -428,26 +451,172 @@ fan.rotation.x = Math.PI / 2;
 scene.add(fan);
 
 const table = new THREE.Group();
-const tableTop = new THREE.Mesh(new THREE.CylinderGeometry(5.4, 5.7, .42, 10), new THREE.MeshStandardMaterial({ color: 0x694a32, roughness: .66, metalness: .04 }));
+const tableTop = new THREE.Mesh(new THREE.CylinderGeometry(5.4, 5.7, .42, 10), new THREE.MeshStandardMaterial({ color: 0x180e09, roughness: .74, metalness: .04 }));
 tableTop.position.y = -1.1;
 tableTop.castShadow = tableTop.receiveShadow = true;
 table.add(tableTop);
-const felt = new THREE.Mesh(new THREE.CylinderGeometry(4.8, 4.8, .055, 64), new THREE.MeshStandardMaterial({ color: 0x506c5c, roughness: .9 }));
+const felt = new THREE.Mesh(new THREE.CylinderGeometry(4.8, 4.8, .055, 64), new THREE.MeshStandardMaterial({ color: 0x0a1d19, emissive: 0x04100d, emissiveIntensity: .28, roughness: .96 }));
 felt.position.y = -.86;
 felt.receiveShadow = true;
 table.add(felt);
-const tableRim = new THREE.Mesh(new THREE.TorusGeometry(5.08, .17, 10, 10), new THREE.MeshStandardMaterial({ color: 0x825d3e, roughness: .54, metalness: .06 }));
+const tableRim = new THREE.Mesh(new THREE.TorusGeometry(5.08, .17, 10, 10), new THREE.MeshStandardMaterial({ color: 0x533724, roughness: .52, metalness: .12 }));
 tableRim.rotation.x = Math.PI / 2;
 tableRim.position.y = -.78;
 tableRim.castShadow = true;
 table.add(tableRim);
 for (let i = 0; i < 4; i += 1) {
-  const leg = new THREE.Mesh(new THREE.BoxGeometry(.42, 2, .42), new THREE.MeshStandardMaterial({ color: 0x4a3425, roughness: .8 }));
+  const leg = new THREE.Mesh(new THREE.BoxGeometry(.42, 2, .42), new THREE.MeshStandardMaterial({ color: 0x20150f, roughness: .84 }));
   leg.position.set(Math.cos(i * Math.PI / 2 + .7) * 3.5, -1.8, Math.sin(i * Math.PI / 2 + .7) * 3.5);
   leg.castShadow = true;
   table.add(leg);
 }
 scene.add(table);
+
+const sigilMaterial = new THREE.MeshStandardMaterial({ color: 0x608c7d, emissive: 0x2c6d5b, emissiveIntensity: 1.65, roughness: .52, transparent: true, opacity: .72 });
+for (const radius of [1.25, 2.28, 3.55]) {
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(radius, .025, 6, 96), sigilMaterial);
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = -.815;
+  table.add(ring);
+}
+for (let i = 0; i < 12; i += 1) {
+  const runeLine = new THREE.Mesh(new THREE.BoxGeometry(2.9, .018, .035), sigilMaterial);
+  runeLine.position.set(Math.cos(i * Math.PI / 6) * 1.55, -.81, Math.sin(i * Math.PI / 6) * 1.55);
+  runeLine.rotation.y = -i * Math.PI / 6 + (i % 2 ? .32 : -.32);
+  table.add(runeLine);
+}
+
+const tableTentacles = new THREE.Group();
+const tentacleCanvas = document.createElement("canvas");
+tentacleCanvas.width = 384;
+tentacleCanvas.height = 96;
+const tentacleContext = tentacleCanvas.getContext("2d");
+tentacleContext.fillStyle = "#173a32";
+tentacleContext.fillRect(0, 0, tentacleCanvas.width, tentacleCanvas.height);
+for (let i = 0; i < 90; i += 1) {
+  tentacleContext.strokeStyle = i % 3 ? "rgba(7,25,21,.28)" : "rgba(91,130,111,.16)";
+  tentacleContext.lineWidth = .6 + Math.random() * 2.4;
+  tentacleContext.beginPath();
+  const startY = Math.random() * tentacleCanvas.height;
+  tentacleContext.moveTo(0, startY);
+  for (let x = 0; x <= tentacleCanvas.width; x += 24) tentacleContext.lineTo(x, startY + Math.sin(x * .035 + i) * (3 + Math.random() * 5));
+  tentacleContext.stroke();
+}
+const tentacleTexture = new THREE.CanvasTexture(tentacleCanvas);
+tentacleTexture.colorSpace = THREE.SRGBColorSpace;
+tentacleTexture.wrapS = tentacleTexture.wrapT = THREE.RepeatWrapping;
+tentacleTexture.repeat.set(3.4, 1);
+const tentacleSkin = new THREE.MeshPhysicalMaterial({ color: 0x244f44, map: tentacleTexture, emissive: 0x071a16, emissiveIntensity: .42, roughness: .72, metalness: .02, clearcoat: .32, clearcoatRoughness: .48 });
+const suckerSkin = new THREE.MeshPhysicalMaterial({ color: 0x704842, emissive: 0x210d0b, emissiveIntensity: .4, roughness: .64, clearcoat: .18 });
+
+function makeTaperedTentacleGeometry(curve, segments, baseRadius, radialSegments = 10) {
+  const frames = curve.computeFrenetFrames(segments, false);
+  const positions = [];
+  const uvs = [];
+  const indices = [];
+  const point = new THREE.Vector3();
+  const offset = new THREE.Vector3();
+  for (let segment = 0; segment <= segments; segment += 1) {
+    const progress = segment / segments;
+    curve.getPointAt(progress, point);
+    const taper = .14 + .86 * Math.pow(1 - progress, .68);
+    const organicPulse = 1 + Math.sin(progress * Math.PI * 9) * .055;
+    const radius = baseRadius * taper * organicPulse;
+    for (let side = 0; side < radialSegments; side += 1) {
+      const angle = side / radialSegments * Math.PI * 2;
+      offset.copy(frames.normals[segment]).multiplyScalar(Math.cos(angle));
+      offset.addScaledVector(frames.binormals[segment], Math.sin(angle));
+      offset.multiplyScalar(radius).add(point);
+      positions.push(offset.x, offset.y, offset.z);
+      uvs.push(progress * 3.4, side / radialSegments);
+    }
+  }
+  for (let segment = 0; segment < segments; segment += 1) {
+    for (let side = 0; side < radialSegments; side += 1) {
+      const nextSide = (side + 1) % radialSegments;
+      const a = segment * radialSegments + side;
+      const b = (segment + 1) * radialSegments + side;
+      const c = (segment + 1) * radialSegments + nextSide;
+      const d = segment * radialSegments + nextSide;
+      indices.push(a, b, d, b, c, d);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+for (let i = 0; i < 7; i += 1) {
+  const angle = i / 7 * Math.PI * 2 + .28;
+  const curl = i % 2 ? .7 : -.7;
+  const curve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(Math.cos(angle) * 5.35, -.58, Math.sin(angle) * 5.35),
+    new THREE.Vector3(Math.cos(angle + curl * .2) * 3.9, -.51 + (i % 3) * .035, Math.sin(angle + curl * .2) * 3.9),
+    new THREE.Vector3(Math.cos(angle + curl * .72) * 2.35, -.48, Math.sin(angle + curl * .72) * 2.35),
+    new THREE.Vector3(Math.cos(angle + curl * 1.55) * .92, -.43, Math.sin(angle + curl * 1.55) * .92)
+  ]);
+  const strand = new THREE.Group();
+  const tube = new THREE.Mesh(makeTaperedTentacleGeometry(curve, 40, .21 + (i % 3) * .025), tentacleSkin);
+  tube.castShadow = tube.receiveShadow = true;
+  strand.add(tube);
+  for (const progress of [.16, .34, .54, .72, .87]) {
+    const joint = new THREE.Mesh(new THREE.SphereGeometry(.15 * (1.18 - progress * .42), 12, 9), tentacleSkin);
+    joint.position.copy(curve.getPoint(progress));
+    joint.scale.set(1.12, .72, 1.08);
+    strand.add(joint);
+  }
+  for (let cup = 4; cup < 36; cup += 5) {
+    const point = curve.getPoint(cup / 40);
+    const sucker = new THREE.Mesh(new THREE.TorusGeometry(.065, .023, 6, 12), suckerSkin);
+    sucker.position.copy(point);
+    sucker.position.y -= .095;
+    sucker.rotation.x = Math.PI / 2;
+    sucker.scale.setScalar(1 - cup / 70);
+    strand.add(sucker);
+  }
+  const tipDirection = curve.getTangent(1).normalize();
+  const tip = new THREE.Mesh(new THREE.ConeGeometry(.11, .68, 12), tentacleSkin);
+  tip.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tipDirection);
+  tip.position.copy(curve.getPoint(1)).addScaledVector(tipDirection, .29);
+  tip.castShadow = true;
+  strand.add(tip);
+  strand.userData.phase = i * 1.41;
+  tableTentacles.add(strand);
+}
+tableTentacles.position.y = .02;
+scene.add(tableTentacles);
+
+function makeMistTexture() {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 256;
+  const context = canvas.getContext("2d");
+  const gradient = context.createRadialGradient(128, 128, 8, 128, 128, 128);
+  gradient.addColorStop(0, "rgba(150,203,188,.34)");
+  gradient.addColorStop(.35, "rgba(92,151,138,.17)");
+  gradient.addColorStop(1, "rgba(20,55,49,0)");
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, 256, 256);
+  return new THREE.CanvasTexture(canvas);
+}
+
+const mist = new THREE.Group();
+const mistTexture = makeMistTexture();
+for (let i = 0; i < 16; i += 1) {
+  const cloud = new THREE.Sprite(new THREE.SpriteMaterial({ map: mistTexture, color: 0x9bc7bb, transparent: true, opacity: .12, depthWrite: false }));
+  const angle = i / 16 * Math.PI * 2;
+  const radius = 2.2 + (i % 5) * 1.25;
+  cloud.position.set(Math.cos(angle) * radius, -1.35 + (i % 4) * .42, Math.sin(angle) * radius);
+  const size = 4.6 + (i % 4) * 1.2;
+  cloud.scale.set(size * 1.7, size, 1);
+  cloud.userData.origin = cloud.position.clone();
+  cloud.userData.phase = i * .91;
+  mist.add(cloud);
+}
+scene.add(mist);
 
 function makeSurfaceTexture(kind) {
   const canvas = document.createElement("canvas");
@@ -496,11 +665,11 @@ function makeGunDecal(text) {
 const gun = new THREE.Group();
 const metalTexture = makeSurfaceTexture("metal");
 const woodTexture = makeSurfaceTexture("wood");
-const darkMetal = new THREE.MeshStandardMaterial({ color: 0x2b302f, map: metalTexture, roughness: .2, metalness: .94 });
-const wornMetal = new THREE.MeshStandardMaterial({ color: 0x7f817b, map: metalTexture, roughness: .28, metalness: .86 });
-const gunBlack = new THREE.MeshStandardMaterial({ color: 0x0d0f0e, roughness: .42, metalness: .72 });
-const wood = new THREE.MeshStandardMaterial({ color: 0x814627, map: woodTexture, roughness: .42, metalness: .03 });
-const woodDark = new THREE.MeshStandardMaterial({ color: 0x4d2517, map: woodTexture, roughness: .56, metalness: .02 });
+const darkMetal = new THREE.MeshPhysicalMaterial({ color: 0x242a28, map: metalTexture, roughness: .19, metalness: .96, clearcoat: .22, clearcoatRoughness: .38 });
+const wornMetal = new THREE.MeshPhysicalMaterial({ color: 0x777b76, map: metalTexture, roughness: .26, metalness: .9, clearcoat: .18, clearcoatRoughness: .42 });
+const gunBlack = new THREE.MeshPhysicalMaterial({ color: 0x090c0b, roughness: .38, metalness: .78, clearcoat: .12 });
+const wood = new THREE.MeshPhysicalMaterial({ color: 0x734024, map: woodTexture, roughness: .38, metalness: .02, clearcoat: .48, clearcoatRoughness: .31 });
+const woodDark = new THREE.MeshPhysicalMaterial({ color: 0x421f14, map: woodTexture, roughness: .5, metalness: .02, clearcoat: .34, clearcoatRoughness: .4 });
 const brassDetail = new THREE.MeshStandardMaterial({ color: 0x9a793d, roughness: .34, metalness: .72 });
 
 const barrelAssembly = new THREE.Group();
@@ -549,7 +718,17 @@ for (let x = -.46; x <= .46; x += .185) {
 }
 gun.add(pump);
 
-const receiver = new THREE.Mesh(new THREE.BoxGeometry(1.32, .78, .7), wornMetal);
+const receiverShape = new THREE.Shape();
+receiverShape.moveTo(-.66, -.35);
+receiverShape.lineTo(-.58, .34);
+receiverShape.lineTo(.48, .39);
+receiverShape.lineTo(.66, .23);
+receiverShape.lineTo(.62, -.28);
+receiverShape.lineTo(.43, -.38);
+receiverShape.closePath();
+const receiverGeometry = new THREE.ExtrudeGeometry(receiverShape, { depth: .64, bevelEnabled: true, bevelSegments: 3, bevelSize: .045, bevelThickness: .045 });
+receiverGeometry.translate(0, 0, -.32);
+const receiver = new THREE.Mesh(receiverGeometry, wornMetal);
 receiver.position.set(-1.67, -.02, 0);
 gun.add(receiver);
 const receiverTop = new THREE.Mesh(new THREE.BoxGeometry(1.22, .1, .5), darkMetal);
@@ -567,6 +746,9 @@ gun.add(boltHandle);
 const loadingPort = new THREE.Mesh(new THREE.BoxGeometry(.58, .025, .33), gunBlack);
 loadingPort.position.set(-1.48, -.42, 0);
 gun.add(loadingPort);
+const carrier = new THREE.Mesh(new THREE.BoxGeometry(.48, .018, .24), brassDetail);
+carrier.position.set(-1.47, -.438, 0);
+gun.add(carrier);
 for (const x of [-1.92, -1.5]) {
   const pin = new THREE.Mesh(new THREE.CylinderGeometry(.045, .045, .025, 12), gunBlack);
   pin.rotation.x = Math.PI / 2;
@@ -583,10 +765,29 @@ for (const side of [-1, 1]) {
   decal.rotation.y = side < 0 ? Math.PI : 0;
   gun.add(decal);
 }
+for (const x of [-2.08, -1.78, -1.25]) {
+  const screw = new THREE.Mesh(new THREE.CylinderGeometry(.052, .052, .02, 16), gunBlack);
+  screw.rotation.x = Math.PI / 2;
+  screw.position.set(x, .08, .374);
+  gun.add(screw);
+  const slot = new THREE.Mesh(new THREE.BoxGeometry(.075, .012, .012), wornMetal);
+  slot.position.set(x, .08, .387);
+  gun.add(slot);
+}
 
-const stock = new THREE.Mesh(new THREE.CylinderGeometry(.45, .3, 2.55, 18), wood);
-stock.rotation.z = Math.PI / 2 - .07;
-stock.position.set(-3.45, -.16, 0);
+const stockShape = new THREE.Shape();
+stockShape.moveTo(-1.38, -.43);
+stockShape.lineTo(-1.42, .36);
+stockShape.quadraticCurveTo(-.62, .45, .1, .27);
+stockShape.lineTo(1.15, .1);
+stockShape.lineTo(1.18, -.22);
+stockShape.quadraticCurveTo(.2, -.28, -.46, -.5);
+stockShape.closePath();
+const stockGeometry = new THREE.ExtrudeGeometry(stockShape, { depth: .69, bevelEnabled: true, bevelSegments: 3, bevelSize: .055, bevelThickness: .055 });
+stockGeometry.translate(0, 0, -.345);
+const stock = new THREE.Mesh(stockGeometry, wood);
+stock.rotation.z = -.035;
+stock.position.set(-3.43, -.12, 0);
 gun.add(stock);
 const cheekRest = new THREE.Mesh(new THREE.BoxGeometry(1.25, .13, .58), woodDark);
 cheekRest.position.set(-3.08, .16, 0);
@@ -606,6 +807,17 @@ const grip = new THREE.Mesh(new THREE.CylinderGeometry(.24, .31, 1.18, 18), wood
 grip.position.set(-2.13, -.73, 0);
 grip.rotation.z = -.26;
 gun.add(grip);
+for (const side of [-1, 1]) {
+  for (let row = 0; row < 5; row += 1) {
+    const checkering = new THREE.Mesh(new THREE.BoxGeometry(.58, .018, .012), woodDark);
+    checkering.position.set(-3.66 + row * .13, -.18 + row * .035, side * .357);
+    checkering.rotation.set(0, side < 0 ? Math.PI : 0, .55);
+    gun.add(checkering);
+  }
+  const actionBar = new THREE.Mesh(new THREE.BoxGeometry(1.7, .045, .035), wornMetal);
+  actionBar.position.set(-.2, -.24, side * .17);
+  gun.add(actionBar);
+}
 const triggerGuard = new THREE.Mesh(new THREE.TorusGeometry(.31, .052, 10, 20, Math.PI * 1.45), darkMetal);
 triggerGuard.rotation.set(Math.PI / 2, 0, -.58);
 triggerGuard.position.set(-1.58, -.55, 0);
@@ -670,21 +882,38 @@ function makeNameSprite(name, color = "#d7ff3f") {
 
 const seats = [];
 const characterProfiles = [
-  { coat: 0x9a4035, shirt: 0x29221e, skin: 0xb77f60, hair: 0x241913, accent: 0xd7ff3f, eldritch: 0x516746, head: [1, 1.08, .94], hat: "flat", mutation: "tentacles" },
-  { coat: 0x356a86, shirt: 0xd6cdb9, skin: 0x845944, hair: 0x151311, accent: 0x79c8ef, eldritch: 0x557c79, head: [.92, 1.02, 1], hat: "glasses", mutation: "gills" },
-  { coat: 0x697b3c, shirt: 0x373126, skin: 0xd19a78, hair: 0x402d20, accent: 0xc6df5a, eldritch: 0x6b7043, head: [1.05, .98, .92], hat: "beanie", mutation: "thirdEye" },
-  { coat: 0x7b477b, shirt: 0x2a202a, skin: 0x966c56, hair: 0x201720, accent: 0xd88adc, eldritch: 0x6d4a70, head: [.9, 1.12, .92], hat: "patch", mutation: "horns" },
-  { coat: 0x8a642f, shirt: 0x3b3328, skin: 0xc68a67, hair: 0x4b3020, accent: 0xe1a94b, eldritch: 0x75633f, head: [1.08, 1, .96], hat: "band", mutation: "spines" },
-  { coat: 0x39786c, shirt: 0x243632, skin: 0x765342, hair: 0x17201d, accent: 0x68d8c0, eldritch: 0x426e62, head: [.95, 1.06, .94], hat: "hood", mutation: "tentacles" }
+  { id: "mariner", coat: 0x7f302b, shirt: 0x211a17, skin: 0xa96f55, hair: 0x1a110e, accent: 0xd7ff3f, eldritch: 0x3d6657, head: [1, 1.08, .94], hat: "flat", mutation: "tentacles" },
+  { id: "witness", coat: 0x28556b, shirt: 0xb8b39f, skin: 0x704738, hair: 0x0e0c0b, accent: 0x79c8ef, eldritch: 0x3f7773, head: [.92, 1.02, 1], hat: "glasses", mutation: "gills" },
+  { id: "host", coat: 0x4e6030, shirt: 0x29241d, skin: 0xbd8569, hair: 0x2b1d16, accent: 0xc6df5a, eldritch: 0x58653a, head: [1.05, .98, .92], hat: "beanie", mutation: "thirdEye" },
+  { id: "scholar", coat: 0x603760, shirt: 0x211921, skin: 0x845a49, hair: 0x170f17, accent: 0xd88adc, eldritch: 0x614064, head: [.9, 1.12, .92], hat: "patch", mutation: "horns" },
+  { id: "penitent", coat: 0x755224, shirt: 0x2d271e, skin: 0xb9795a, hair: 0x352015, accent: 0xe1a94b, eldritch: 0x6a5635, head: [1.08, 1, .96], hat: "band", mutation: "spines" },
+  { id: "hollow", coat: 0x285d53, shirt: 0x192c28, skin: 0x604238, hair: 0x0f1816, accent: 0x68d8c0, eldritch: 0x335f55, head: [.95, 1.06, .94], hat: "hood", mutation: "tentacles" }
 ];
+const characterProfileById = new Map(characterProfiles.map((profile, index) => [profile.id, { ...profile, index }]));
+const organicCanvas = document.createElement("canvas");
+organicCanvas.width = organicCanvas.height = 128;
+const organicContext = organicCanvas.getContext("2d");
+const organicPixels = organicContext.createImageData(128, 128);
+for (let i = 0; i < organicPixels.data.length; i += 4) {
+  const grain = 105 + Math.random() * 110;
+  organicPixels.data[i] = grain;
+  organicPixels.data[i + 1] = grain;
+  organicPixels.data[i + 2] = grain;
+  organicPixels.data[i + 3] = 255;
+}
+organicContext.putImageData(organicPixels, 0, 0);
+const organicBump = new THREE.CanvasTexture(organicCanvas);
+organicBump.wrapS = organicBump.wrapT = THREE.RepeatWrapping;
+organicBump.repeat.set(3, 3);
 
-function makeCharacter(index) {
-  const profile = characterProfiles[index];
+function makeCharacter(characterId) {
+  const profile = characterProfileById.get(characterId);
+  if (!profile) throw new Error(`Bilinmeyen 3B karakter: ${characterId}`);
   const seat = new THREE.Group();
   const chairMaterial = new THREE.MeshStandardMaterial({ color: 0x3a2c22, roughness: .8 });
-  const clothing = new THREE.MeshStandardMaterial({ color: profile.coat, emissive: profile.coat, emissiveIntensity: .11, roughness: .8 });
-  const shirt = new THREE.MeshStandardMaterial({ color: profile.shirt, emissive: profile.shirt, emissiveIntensity: .08, roughness: .86 });
-  const skin = new THREE.MeshStandardMaterial({ color: profile.skin, emissive: 0x2c140d, emissiveIntensity: .13, roughness: .82 });
+  const clothing = new THREE.MeshStandardMaterial({ color: profile.coat, emissive: profile.coat, emissiveIntensity: .16, roughness: .8, bumpMap: organicBump, bumpScale: .018 });
+  const shirt = new THREE.MeshStandardMaterial({ color: profile.shirt, emissive: profile.shirt, emissiveIntensity: .11, roughness: .86, bumpMap: organicBump, bumpScale: .012 });
+  const skin = new THREE.MeshStandardMaterial({ color: profile.skin, emissive: 0x301811, emissiveIntensity: .24, roughness: .82, bumpMap: organicBump, bumpScale: .012 });
   const hairMaterial = new THREE.MeshStandardMaterial({ color: profile.hair, roughness: .95 });
   const accentMaterial = new THREE.MeshStandardMaterial({ color: profile.accent, emissive: profile.accent, emissiveIntensity: .65, roughness: .55 });
   const eldritchMaterial = new THREE.MeshStandardMaterial({ color: profile.eldritch, emissive: profile.eldritch, emissiveIntensity: .18, roughness: .72 });
@@ -721,11 +950,23 @@ function makeCharacter(index) {
   mesh(new THREE.CylinderGeometry(.18, .2, .28, 10), skin, headRig, [0, 1.25, -.05]);
   const head = mesh(new THREE.SphereGeometry(.43, 20, 16), skin, headRig, [0, 1.68, -.08], [0,0,0], profile.head);
   mesh(new THREE.ConeGeometry(.09, .25, 10), skin, headRig, [0, 1.66, -.49], [Math.PI / 2, 0, 0]);
+  mesh(new THREE.SphereGeometry(.31, 18, 12), skin, headRig, [0, 1.49, -.14], [0,0,0], [1.08,.56,.92]);
+  for (const side of [-1, 1]) {
+    mesh(new THREE.SphereGeometry(.13, 14, 10), skin, headRig, [side * .31, 1.6, -.37], [0,0,side * .08], [1.15,.62,.72]);
+    mesh(new THREE.SphereGeometry(.105, 14, 10), skin, headRig, [side * .45, 1.67, -.07], [0,0,side * .12], [.48,1,.7]);
+  }
   mesh(new THREE.BoxGeometry(.28, .035, .025), black, headRig, [0, 1.48, -.48], [.05,0,0]);
+  mesh(new THREE.BoxGeometry(.18, .025, .018), accentMaterial, headRig, [.03, 1.435, -.465], [0,0,-.06]);
   const eyeMaterial = new THREE.MeshStandardMaterial({ color: profile.accent, emissive: profile.accent, emissiveIntensity: 3 });
   for (const side of [-1, 1]) {
     mesh(new THREE.SphereGeometry(.038, 8, 6), eyeMaterial, headRig, [side * .15, 1.72, -.47]);
     mesh(new THREE.BoxGeometry(.19, .035, .035), hairMaterial, headRig, [side * .15, 1.84, -.46], [0,0,side * -.12]);
+  }
+  for (let wrinkle = 0; wrinkle < 3; wrinkle += 1) {
+    mesh(new THREE.TorusGeometry(.16 + wrinkle * .025, .008, 5, 18, Math.PI * .7), hairMaterial, headRig, [0, 1.88 + wrinkle * .045, -.4], [0,0,.42]);
+  }
+  if (profile.index % 2) {
+    mesh(new THREE.BoxGeometry(.012, .27, .018), accentMaterial, headRig, [-.19, 1.68, -.485], [0,0,-.32]);
   }
 
   const addTentacle = (side, row, reach = 1) => {
@@ -742,7 +983,7 @@ function makeCharacter(index) {
   };
 
   if (profile.mutation === "tentacles") {
-    for (const side of [-1, 1]) for (let row = 0; row < 3; row += 1) addTentacle(side, row, 1 + index * .025);
+    for (const side of [-1, 1]) for (let row = 0; row < 3; row += 1) addTentacle(side, row, 1 + profile.index * .025);
     mesh(new THREE.SphereGeometry(.16, 16, 10), eldritchMaterial, headRig, [0, 1.43, -.5], [0,0,0], [1.1,.55,.45]);
   } else {
     for (const side of [-1, 1]) {
@@ -778,7 +1019,7 @@ function makeCharacter(index) {
     }
   }
 
-  if (profile.mutation === "thirdEye" || index % 2 === 0) {
+  if (profile.mutation === "thirdEye" || profile.index % 2 === 0) {
     mesh(new THREE.SphereGeometry(.062, 12, 10), eyeMaterial, headRig, [0, 1.94, -.43], [0,0,0], [1,1.25,.5]);
     mesh(new THREE.TorusGeometry(.095, .018, 8, 18), eldritchMaterial, headRig, [0, 1.94, -.44]);
   } else {
@@ -831,9 +1072,11 @@ function makeCharacter(index) {
   activeRing.rotation.x = Math.PI / 2;
   activeRing.position.y = -.73;
   activeRing.visible = false;
-  const seatGlow = new THREE.PointLight(profile.accent, 2.4, 3.2, 2);
-  seatGlow.position.set(0, 1.25, -1.05);
-  seat.add(activeRing, seatGlow);
+  const seatGlow = new THREE.PointLight(profile.accent, 42, 4.8, 1.8);
+  seatGlow.position.set(0, 1.65, -1.28);
+  const faceLight = new THREE.PointLight(0xd8c7ac, 24, 3.2, 2);
+  faceLight.position.set(0, 2.05, -1.05);
+  seat.add(activeRing, seatGlow, faceLight);
   seat.userData.activeRing = activeRing;
   seat.userData.body = body;
   seat.userData.head = headRig;
@@ -846,12 +1089,13 @@ function makeCharacter(index) {
   seat.userData.baseAngle = 0;
   seat.userData.label = null;
   seat.userData.labelName = "";
+  seat.userData.characterId = characterId;
   return seat;
 }
 
 for (let i = 0; i < 6; i += 1) {
   const angle = i / 6 * Math.PI * 2 + Math.PI / 2;
-  const seat = makeCharacter(i);
+  const seat = makeCharacter(characterProfiles[i].id);
   seat.position.set(Math.cos(angle) * 5.75, -1.08, Math.sin(angle) * 5.75);
   seat.rotation.y = -angle + Math.PI / 2;
   seat.userData.baseAngle = seat.rotation.y;
@@ -860,28 +1104,70 @@ for (let i = 0; i < 6; i += 1) {
   seats.push(seat);
 }
 
+function disposeGroup(group) {
+  group.traverse((object) => {
+    object.geometry?.dispose();
+    if (Array.isArray(object.material)) {
+      object.material.forEach((material) => {
+        material.map?.dispose();
+        material.dispose();
+      });
+    } else if (object.material) {
+      object.material.map?.dispose();
+      object.material.dispose();
+    }
+  });
+}
+
+function ensureSeatCharacter(index, characterId) {
+  const currentSeat = seats[index];
+  if (currentSeat?.userData.characterId === characterId) return currentSeat;
+  const angle = index / 6 * Math.PI * 2 + Math.PI / 2;
+  const nextSeat = makeCharacter(characterId);
+  nextSeat.position.set(Math.cos(angle) * 5.75, -1.08, Math.sin(angle) * 5.75);
+  nextSeat.rotation.y = -angle + Math.PI / 2;
+  nextSeat.userData.baseAngle = nextSeat.rotation.y;
+  nextSeat.visible = currentSeat?.visible ?? false;
+  scene.add(nextSeat);
+  if (currentSeat) {
+    scene.remove(currentSeat);
+    disposeGroup(currentSeat);
+  }
+  seats[index] = nextSeat;
+  return nextSeat;
+}
+
 const itemTrays = [];
 const trayMaterial = new THREE.MeshStandardMaterial({ color: 0x181c18, roughness: .84, metalness: .08 });
 const trayEdgeMaterial = new THREE.MeshStandardMaterial({ color: 0x706149, roughness: .48, metalness: .36 });
+const itemSlotPositions = [[-.78, -.27], [0, -.27], [.78, -.27], [-.42, .3], [.42, .3]];
 for (let i = 0; i < 6; i += 1) {
   const angle = i / 6 * Math.PI * 2 + Math.PI / 2;
   const tray = new THREE.Group();
-  const base = new THREE.Mesh(new THREE.BoxGeometry(2.25, .1, 1.02), trayMaterial.clone());
+  const base = new THREE.Mesh(new THREE.BoxGeometry(2.72, .1, 1.18), trayMaterial.clone());
   base.receiveShadow = true;
   tray.add(base);
-  for (const z of [-.49, .49]) {
-    const edge = new THREE.Mesh(new THREE.BoxGeometry(2.35, .12, .055), trayEdgeMaterial);
+  for (const z of [-.57, .57]) {
+    const edge = new THREE.Mesh(new THREE.BoxGeometry(2.82, .12, .055), trayEdgeMaterial);
     edge.position.set(0, .08, z);
     tray.add(edge);
   }
-  for (const x of [-1.14, 1.14]) {
-    const edge = new THREE.Mesh(new THREE.BoxGeometry(.055, .12, 1.02), trayEdgeMaterial);
+  for (const x of [-1.38, 1.38]) {
+    const edge = new THREE.Mesh(new THREE.BoxGeometry(.055, .12, 1.18), trayEdgeMaterial);
     edge.position.set(x, .08, 0);
     tray.add(edge);
   }
   const props = new THREE.Group();
   props.position.y = .1;
   tray.add(props);
+  for (const [x, z] of itemSlotPositions) {
+    const slot = new THREE.Mesh(
+      new THREE.CylinderGeometry(.28, .28, .025, 20),
+      new THREE.MeshStandardMaterial({ color: 0x202a25, emissive: 0x0d1713, emissiveIntensity: .45, roughness: .78, metalness: .16 })
+    );
+    slot.position.set(x, .075, z);
+    tray.add(slot);
+  }
   tray.position.set(Math.cos(angle) * 3.65, -.72, Math.sin(angle) * 3.65);
   tray.rotation.y = -angle + Math.PI / 2;
   tray.userData.props = props;
@@ -965,13 +1251,12 @@ function syncItemProps(players) {
       else object.material?.dispose();
     });
     props.clear();
-    player.items.slice(0, 4).forEach((item, index) => {
+    player.items.slice(0, player.itemLimit).forEach((item, index) => {
       const prop = makeItemProp(item);
-      const column = index % 2;
-      const row = Math.floor(index / 2);
-      prop.position.set((column - .5) * .92, .02, (row - .5) * .5);
-      prop.rotation.y = (column ? -.08 : .08) + (row ? .04 : -.04);
-      prop.scale.multiplyScalar(.82);
+      const [x, z] = itemSlotPositions[index];
+      prop.position.set(x, .02, z);
+      prop.rotation.y = (index % 2 ? -.09 : .09) + (index > 2 ? .04 : -.04);
+      prop.scale.multiplyScalar(.66);
       props.add(prop);
     });
   });
@@ -985,10 +1270,11 @@ for (let i = 0; i < dustPositions.length; i += 3) {
   dustPositions[i + 2] = (Math.random() - .5) * 24;
 }
 dustGeometry.setAttribute("position", new THREE.BufferAttribute(dustPositions, 3));
-const dust = new THREE.Points(dustGeometry, new THREE.PointsMaterial({ color: 0xc7b990, size: .022, transparent: true, opacity: .32 }));
+const dust = new THREE.Points(dustGeometry, new THREE.PointsMaterial({ color: 0x86b6aa, size: .024, transparent: true, opacity: .3 }));
 scene.add(dust);
 
 function syncSeats(players) {
+  players.forEach((player, index) => ensureSeatCharacter(index, player.character));
   seats.forEach((seat, index) => {
     seat.visible = index < players.length;
     if (index < players.length) {
@@ -1040,7 +1326,10 @@ function aimGunAt(playerId) {
 }
 
 function sceneMode(phase) {
-  desiredCamera = phase === "playing" ? new THREE.Vector3(7.2, 6.4, 9.2) : new THREE.Vector3(8.6, 7.1, 10.8);
+  const portrait = innerWidth / innerHeight < .8;
+  desiredCamera = phase === "playing"
+    ? (portrait ? new THREE.Vector3(7.2, 6.4, 9.2) : new THREE.Vector3(5.1, 4.55, 6.7))
+    : (portrait ? new THREE.Vector3(8.6, 7.1, 10.8) : new THREE.Vector3(6.1, 5.2, 7.9));
   gun.visible = phase !== "lobby";
   itemTrays.forEach((tray, index) => { tray.visible = phase === "playing" && Boolean(state?.players[index]?.alive); });
 }
@@ -1142,10 +1431,23 @@ function frame() {
     tray.userData.props.children.forEach((prop, index) => { prop.rotation.y += .002 * (index % 2 ? 1 : -1); });
   });
   dust.rotation.y = time * .008;
+  tableTentacles.children.forEach((strand) => {
+    const pulse = Math.sin(time * .58 + strand.userData.phase);
+    strand.position.y = pulse * .022;
+    strand.rotation.y = pulse * .0045;
+    strand.scale.y = 1 + pulse * .012;
+  });
+  mist.children.forEach((cloud) => {
+    const drift = time * .075 + cloud.userData.phase;
+    cloud.position.x = cloud.userData.origin.x + Math.sin(drift) * .72;
+    cloud.position.y = cloud.userData.origin.y + Math.sin(drift * 1.7) * .18;
+    cloud.position.z = cloud.userData.origin.z + Math.cos(drift * .83) * .54;
+    cloud.material.opacity = .075 + (Math.sin(drift * 1.25) + 1) * .035;
+  });
   fan.rotation.z = time * 1.35;
   monitorScreen.material.emissiveIntensity = 1.75 + Math.sin(time * 7.4) * .18 + Math.sin(time * 19.1) * .08;
   warningSprite.material.opacity = .82 + Math.sin(time * 5.3) * .12;
-  keyLight.intensity = 166 + Math.sin(time * 2.1) * 4 + Math.sin(time * 7.7) * 2;
+  keyLight.intensity = 304 + Math.sin(time * 2.1) * 8 + Math.sin(time * 7.7) * 4;
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }
@@ -1155,5 +1457,6 @@ addEventListener("resize", () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.4));
+  if (state) sceneMode(state.phase);
 });

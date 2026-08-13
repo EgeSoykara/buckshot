@@ -1,8 +1,9 @@
 import crypto from "node:crypto";
+import { CHARACTER_IDS, CHARACTER_RULES } from "../shared/characters.js";
 
 export const MAX_PLAYERS = 6;
-export const STARTING_HEALTH = 3;
 export const TURN_DURATION_MS = 30_000;
+export { CHARACTER_IDS, CHARACTER_RULES };
 
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 export const ITEM_POOL = [
@@ -45,6 +46,12 @@ export function cleanName(value) {
     .slice(0, 18);
 }
 
+export function cleanCharacter(value) {
+  const character = String(value ?? "").trim().toLowerCase();
+  if (!Object.hasOwn(CHARACTER_RULES, character)) throw new Error("Geçerli bir karakter seçmelisin.");
+  return character;
+}
+
 export function shuffle(values, random = Math.random) {
   const result = [...values];
   for (let i = result.length - 1; i > 0; i -= 1) {
@@ -65,10 +72,16 @@ function makeToken() {
 }
 
 function playerView(player) {
+  const rules = CHARACTER_RULES[player.character];
   return {
     id: player.id,
     name: player.name,
+    character: player.character,
+    characterName: rules.name,
+    passiveName: rules.passive,
     health: player.health,
+    maxHealth: rules.maxHealth,
+    itemLimit: rules.itemLimit,
     alive: player.alive,
     connected: player.connected,
     ready: player.ready,
@@ -79,7 +92,7 @@ function playerView(player) {
 }
 
 export class GameRoom {
-  constructor(code, hostSocketId, hostName, now = Date.now()) {
+  constructor(code, hostSocketId, hostName, hostCharacter, now = Date.now()) {
     this.code = code;
     this.phase = "lobby";
     this.hostId = hostSocketId;
@@ -91,13 +104,14 @@ export class GameRoom {
     this.lastAction = "Oda kuruldu. Rakiplerini bekliyorsun.";
     this.updatedAt = now;
     this.winnerId = null;
-    this.addPlayer(hostSocketId, hostName, now);
+    this.addPlayer(hostSocketId, hostName, hostCharacter, now);
   }
 
-  addPlayer(socketId, rawName, now = Date.now()) {
+  addPlayer(socketId, rawName, rawCharacter, now = Date.now()) {
     if (this.phase !== "lobby") throw new Error("Oyun başladı; yeni oyuncu alınmıyor.");
     if (this.players.length >= MAX_PLAYERS) throw new Error("Bu oda dolu.");
     const name = cleanName(rawName);
+    const character = cleanCharacter(rawCharacter);
     if (!name) throw new Error("Bir oyuncu adı yazmalısın.");
     if (this.players.some((player) => player.name.toLocaleLowerCase("tr") === name.toLocaleLowerCase("tr"))) {
       throw new Error("Bu isim odada zaten kullanılıyor.");
@@ -107,13 +121,17 @@ export class GameRoom {
       id: socketId,
       token: makeToken(),
       name,
-      health: STARTING_HEALTH,
+      character,
+      health: CHARACTER_RULES[character].maxHealth,
       alive: true,
       connected: true,
       ready: false,
       items: [],
       sawed: false,
       skipTurns: 0,
+      scholarFreeRound: 0,
+      hollowWardRound: 0,
+      vision: null,
       disconnectedAt: null
     };
     this.players.push(player);
@@ -149,11 +167,14 @@ export class GameRoom {
     this.round = 0;
     this.winnerId = null;
     for (const player of this.players) {
-      player.health = STARTING_HEALTH;
+      player.health = CHARACTER_RULES[player.character].maxHealth;
       player.alive = true;
       player.items = [];
       player.sawed = false;
       player.skipTurns = 0;
+      player.scholarFreeRound = 0;
+      player.hollowWardRound = 0;
+      player.vision = null;
     }
     this.loadRound(now);
     this.currentPlayerId = this.alivePlayers()[0].id;
@@ -165,10 +186,13 @@ export class GameRoom {
     this.round += 1;
     this.magazine = makeMagazine(this.round);
     for (const player of this.alivePlayers()) {
-      while (player.items.length < 4 && player.items.length < this.round + 1) {
+      const itemLimit = CHARACTER_RULES[player.character].itemLimit;
+      while (player.items.length < itemLimit && player.items.length < this.round + 1) {
         player.items.push(ITEM_POOL[crypto.randomInt(ITEM_POOL.length)]);
       }
-      player.sawed = false;
+      player.vision = player.character === "witness"
+        ? { round: this.round, shell: this.magazine[0] }
+        : null;
     }
     this.updatedAt = now;
   }
@@ -212,12 +236,18 @@ export class GameRoom {
     if (!shell) throw new Error("Hazne boş.");
     const selfShot = actor.id === target.id;
     let damaged = false;
-    const damage = actor.sawed ? 2 : 1;
-    actor.sawed = false;
+    let damage = actor.sawed ? 2 : 1;
+    let warded = false;
 
     if (shell === "live") {
+      actor.sawed = false;
+      if (target.character === "hollow" && target.hollowWardRound !== this.round) {
+        target.hollowWardRound = this.round;
+        damage = Math.max(0, damage - 1);
+        warded = true;
+      }
       target.health -= damage;
-      damaged = true;
+      damaged = damage > 0;
       if (target.health <= 0) {
         target.health = 0;
         target.alive = false;
@@ -229,7 +259,8 @@ export class GameRoom {
         ? `${actor.name} silahı kendine çevirdi: BOŞ. Sıra onda kalıyor.`
         : `${actor.name}, ${target.name} için tetiği çekti: BOŞ.`;
     } else {
-      this.lastAction = `${actor.name} ateş etti: DOLU! ${target.name} ${target.alive ? `${damage} can kaybetti.` : "elendi."}`;
+      const wardMessage = warded ? " Hiçlik Perdesi hasarı 1 azalttı." : "";
+      this.lastAction = `${actor.name} ateş etti: DOLU! ${target.name} ${target.alive ? `${damage} can kaybetti.` : "elendi."}${wardMessage}`;
     }
 
     const alive = this.alivePlayers();
@@ -245,7 +276,7 @@ export class GameRoom {
       this.turnDeadline = now + TURN_DURATION_MS;
     }
     this.updatedAt = now;
-    return { shell, selfShot, damaged, damage: shell === "live" ? damage : 0, actorId: actor.id, targetId: target.id };
+    return { shell, selfShot, damaged, warded, damage: shell === "live" ? damage : 0, actorId: actor.id, targetId: target.id };
   }
 
   advanceTurn(fromId = this.currentPlayerId) {
@@ -259,20 +290,32 @@ export class GameRoom {
     const index = actor.items.indexOf(item);
     if (index < 0) throw new Error("Bu ekipmana sahip değilsin.");
     let privateMessage = null;
+    let consumeItem = true;
+    let loadNextRoundAfterConsumption = false;
+    const maxHealth = CHARACTER_RULES[actor.character].maxHealth;
 
     if (item === "cigarettes") {
-      if (actor.health >= STARTING_HEALTH) throw new Error("Canın zaten tam.");
+      if (actor.health >= maxHealth) throw new Error("Canın zaten tam.");
       actor.health += 1;
       this.lastAction = `${actor.name} bir sigara yaktı ve 1 can yeniledi.`;
     } else if (item === "magnifier") {
       privateMessage = this.magazine[0] === "live" ? "Sıradaki fişek DOLU." : "Sıradaki fişek BOŞ.";
+      if (actor.character === "scholar" && actor.scholarFreeRound !== this.round) {
+        actor.scholarFreeRound = this.round;
+        consumeItem = false;
+        privateMessage += " Yasak Bilgi büyüteci bu haznede bir kez korudu.";
+      }
       this.lastAction = `${actor.name} büyüteçle hazneyi kontrol etti.`;
     } else if (item === "beer") {
       const removed = this.magazine.shift();
       if (!removed) throw new Error("Hazne zaten boş.");
       privateMessage = removed === "live" ? "Dolu fişeği çıkardın." : "Boş fişeği çıkardın.";
+      if (actor.character === "mariner" && actor.health < maxHealth) {
+        actor.health += 1;
+        privateMessage += " Tuzlu Kan 1 can yeniledi.";
+      }
       this.lastAction = `${actor.name} pompalıyı birayla zorlayıp fişeği çıkardı.`;
-      if (this.magazine.length === 0) this.loadRound(now);
+      loadNextRoundAfterConsumption = this.magazine.length === 0;
     } else if (item === "handcuffs") {
       const target = this.nextAlive(actor.id, false);
       if (!target || target.id === actor.id) throw new Error("Kelepçelenecek rakip yok.");
@@ -308,7 +351,7 @@ export class GameRoom {
       this.lastAction = `${actor.name} adrenalinle bir rakibin ekipmanını kaptı.`;
     } else if (item === "medicine") {
       if (crypto.randomInt(2) === 0) {
-        actor.health = Math.min(STARTING_HEALTH, actor.health + 2);
+        actor.health = Math.min(maxHealth, actor.health + 2);
         privateMessage = "İlaç işe yaradı: 2 can kazandın.";
       } else {
         actor.health = Math.max(1, actor.health - 1);
@@ -319,9 +362,10 @@ export class GameRoom {
       throw new Error("Bilinmeyen ekipman.");
     }
 
-    actor.items.splice(index, 1);
+    if (consumeItem) actor.items.splice(index, 1);
+    if (loadNextRoundAfterConsumption) this.loadRound(now);
     this.updatedAt = now;
-    return { privateMessage, used: true };
+    return { privateMessage, used: true, consumed: consumeItem };
   }
 
   disconnect(socketId, now = Date.now()) {
@@ -364,7 +408,13 @@ export class GameRoom {
       lastAction: this.lastAction,
       winnerId: this.winnerId,
       viewerId,
-      viewerToken: viewer?.token ?? null
+      viewerToken: viewer?.token ?? null,
+      characterInsight: viewer?.character === "witness" && viewer.vision?.round === this.round
+        ? {
+            round: viewer.vision.round,
+            message: `Önsezi: Bu hazne yüklenirken ilk fişek ${viewer.vision.shell === "live" ? "DOLUYDU" : "BOŞTU"}.`
+          }
+        : null
     };
   }
 }
@@ -374,9 +424,9 @@ export class RoomStore {
     this.rooms = new Map();
   }
 
-  create(socketId, name) {
+  create(socketId, name, character) {
     const code = makeCode(new Set(this.rooms.keys()));
-    const room = new GameRoom(code, socketId, name);
+    const room = new GameRoom(code, socketId, name, character);
     this.rooms.set(code, room);
     return room;
   }

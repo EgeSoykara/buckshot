@@ -21,6 +21,7 @@ const indexHtml = readFileSync(path.join(root, "public/index.html"), "utf8");
 app.disable("x-powered-by");
 app.get("/health", (_request, response) => response.status(200).json({ ok: true }));
 app.use("/vendor/three", express.static(path.join(root, "node_modules/three/build"), { immutable: true, maxAge: "1y" }));
+app.use("/shared", express.static(path.join(root, "shared"), { immutable: true, maxAge: "1y" }));
 app.use(express.static(path.join(root, "public"), { index: false, maxAge: "1h" }));
 app.get("/{*path}", (request, response) => {
   const protocol = request.get("x-forwarded-proto")?.split(",")[0] || request.protocol;
@@ -47,22 +48,22 @@ function joinSocketRoom(socket, room, player) {
 }
 
 io.on("connection", (socket) => {
-  socket.on("room:create", ({ name } = {}) => {
+  socket.on("room:create", ({ name, character } = {}) => {
     try {
       if (rooms.findBySocket(socket.id)) throw new Error("Zaten bir odadasın.");
-      const room = rooms.create(socket.id, name);
+      const room = rooms.create(socket.id, name, character);
       joinSocketRoom(socket, room, room.player(socket.id));
     } catch (error) {
       fail(socket, error);
     }
   });
 
-  socket.on("room:join", ({ code, name } = {}) => {
+  socket.on("room:join", ({ code, name, character } = {}) => {
     try {
       if (rooms.findBySocket(socket.id)) throw new Error("Zaten bir odadasın.");
       const room = rooms.get(code);
       if (!room) throw new Error("Oda bulunamadı. Kodu kontrol et.");
-      const player = room.addPlayer(socket.id, name);
+      const player = room.addPlayer(socket.id, name, character);
       joinSocketRoom(socket, room, player);
     } catch (error) {
       fail(socket, error);

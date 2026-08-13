@@ -232,6 +232,7 @@ input:focus { border-color: var(--acid); box-shadow: 0 0 0 1px var(--acid); }
 .player-meta { min-width: 0; }
 .player-meta b { display: block; overflow: hidden; text-overflow: ellipsis; font-size: 11px; white-space: nowrap; }
 .player-meta span { display: block; margin-top: 2px; color: var(--muted); font: 400 8px var(--mono); }
+.player-meta span strong { color: #9fb9ae; font-weight: 500; }
 .hearts { display: flex; gap: 3px; }
 .heart { width: 6px; height: 6px; background: var(--rust); transform: rotate(45deg); }
 .heart.empty { background: #373531; }
@@ -253,6 +254,11 @@ input:focus { border-color: var(--acid); box-shadow: 0 0 0 1px var(--acid); }
 .timer b { position: absolute; right: 0; top: -16px; font: 500 8px var(--mono); }
 .turn-card h2 { margin: 7px 0 3px; font: 400 25px var(--display); }
 .turn-card > p { margin: 0 0 15px; color: var(--muted); font-size: 10px; min-height: 15px; }
+.passive-panel { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 11px; margin: -2px 0 13px; padding: 9px 10px; border-left: 2px solid #6d8e83; background: rgba(69,107,96,.12); }
+.passive-panel span { color: #9dc7b8; font: 500 7px var(--mono); letter-spacing: .11em; white-space: nowrap; }
+.passive-panel b { color: #aaa89f; font: 500 8px/1.45 var(--mono); }
+.passive-panel.insight { border-color: var(--acid); background: rgba(215,255,63,.09); box-shadow: inset 0 0 22px rgba(215,255,63,.04); }
+.passive-panel.insight b { color: #dce9ba; }
 .target-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
 .target-button { height: 44px; border: 1px solid var(--line); background: rgba(255,255,255,.04); cursor: pointer; font-size: 9px; font-weight: 800; text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 8px; }
 .target-button.self { border-color: rgba(215,255,63,.5); color: var(--acid); }
@@ -360,6 +366,7 @@ input:focus { border-color: var(--acid); box-shadow: 0 0 0 1px var(--acid); }
   .turn-card { padding: 16px; }
   .target-list { grid-template-columns: repeat(2, 1fr); }
   .item-list { overflow-x: auto; }
+  .passive-panel { grid-template-columns: 1fr; gap: 4px; }
   .item-button { min-width: 90px; }
   .aim-reticle { transform: translate(-50%,-65%) scale(.72); }
   .turn-announcer { top: 13%; min-width: 190px; }
