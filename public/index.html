@@ -19,7 +19,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=DM+Mono:wght@400;500&family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=20260813-liminal3" />
+    <link rel="stylesheet" href="/styles.css?v=20260813-eldritch-home" />
   </head>
   <body>
     <canvas id="scene" aria-hidden="true"></canvas>
@@ -41,32 +41,77 @@
 
     <main>
       <section id="home-screen" class="screen home-screen">
-        <div class="hero-copy">
-          <div class="eyebrow"><span></span> 2–6 OYUNCU · GERÇEK ZAMANLI</div>
-          <h1>MASADAN<br /><em>SAĞ ÇIK.</em></h1>
-          <p>Haznede dolu da var, boş da. Sıran geldiğinde hedefini seç, ekipmanını kullan ve soğukkanlılığını kaybetme.</p>
-          <div class="rule-strip">
-            <div><b>01</b><span>Odayı kur</span></div>
-            <div><b>02</b><span>Linki paylaş</span></div>
-            <div><b>03</b><span>Son kalan ol</span></div>
+        <div class="home-atmosphere" aria-hidden="true">
+          <div class="abyss-glow"></div>
+          <div class="occult-orbit orbit-one"></div>
+          <div class="occult-orbit orbit-two"></div>
+          <i class="eldritch-rune rune-one">⌁</i>
+          <i class="eldritch-rune rune-two">⦿</i>
+          <i class="eldritch-rune rune-three">⋔</i>
+        </div>
+
+        <div class="home-upper">
+          <div class="hero-copy">
+            <div class="eyebrow"><span></span> 2–6 OYUNCU · GERÇEK ZAMANLI <i>VAKA LC–06</i></div>
+            <h1>MASADAN<br /><em>SAĞ ÇIK.</em></h1>
+            <p>Haznede dolu da var, boş da. Hedefini seç, ekipmanını kullan ve aklını karanlığa teslim etme.</p>
+            <div class="rule-strip">
+              <div><b>01</b><span>Odayı kur</span></div>
+              <div><b>02</b><span>Karakterini seç</span></div>
+              <div><b>03</b><span>Son kalan ol</span></div>
+            </div>
+          </div>
+
+          <div class="join-card panel">
+            <div class="join-sigil" aria-hidden="true"><i></i><b>VI</b></div>
+            <div class="panel-number">[ 01 / GİRİŞ ]</div>
+            <span class="join-kicker">MASA SENİ BEKLİYOR</span>
+            <h2>MASAYA OTUR</h2>
+            <p>İsmini fısılda. Oda kodun varsa karanlığa gir; yoksa kendi masanı uyandır.</p>
+            <label for="player-name">OYUNCU ADI</label>
+            <div class="haunted-input">
+              <input id="player-name" maxlength="18" autocomplete="nickname" placeholder="Örn. Ege" />
+              <i aria-hidden="true">⌁</i>
+            </div>
+            <div class="divider"><span>DAVET MÜHRÜ</span></div>
+            <label for="room-code">DAVET KODU</label>
+            <div class="code-entry">
+              <input id="room-code" maxlength="5" autocomplete="off" placeholder="ABCDE" />
+              <button id="join-button" class="button secondary">KATIL</button>
+            </div>
+            <button id="create-button" class="button primary"><span>YENİ ODA KUR</span><b>→</b></button>
+            <div class="join-warning"><i></i><span>Odaya girdiğinde masa seçimini hatırlayacak.</span></div>
           </div>
         </div>
 
-        <div class="join-card panel">
-          <div class="panel-number">6 MAX</div>
-          <h2>MASAYA OTUR</h2>
-          <p>Kurulum yok. İsim yazman yeterli.</p>
-          <label for="player-name">OYUNCU ADI</label>
-          <input id="player-name" maxlength="18" autocomplete="nickname" placeholder="Örn. Ege" />
-          <div class="divider"><span>ODA</span></div>
-          <label for="room-code">DAVET KODU</label>
-          <div class="code-entry">
-            <input id="room-code" maxlength="5" autocomplete="off" placeholder="ABCDE" />
-            <button id="join-button" class="button secondary">KATIL</button>
+        <section class="character-select" aria-labelledby="character-title">
+          <div class="character-heading">
+            <div><span>[ 02 / KİMLİK ]</span><h2 id="character-title">KARAKTERİNİ SEÇ</h2></div>
+            <p><i></i> 6 MEVCUT DOSYA · SEÇİM YERELDE KAYDEDİLİR</p>
           </div>
-          <button id="create-button" class="button primary"><span>YENİ ODA KUR</span><b>→</b></button>
+          <div id="character-list" class="character-list" role="radiogroup" aria-label="Karakter seçimi">
+            <button class="character-card selected" type="button" role="radio" aria-checked="true" data-character="mariner">
+              <span class="portrait portrait-mariner"><i>01</i></span><span class="character-meta"><b>DENİZCİ</b><small>DERİN SU NEFESİ</small></span><em>THE MARINER</em>
+            </button>
+            <button class="character-card" type="button" role="radio" aria-checked="false" data-character="witness">
+              <span class="portrait portrait-witness"><i>02</i></span><span class="character-meta"><b>TANIK</b><small>HER ŞEYİ GÖRÜR</small></span><em>THE WITNESS</em>
+            </button>
+            <button class="character-card" type="button" role="radio" aria-checked="false" data-character="host">
+              <span class="portrait portrait-host"><i>03</i></span><span class="character-meta"><b>KONAK</b><small>İÇİNDEKİ UYANIK</small></span><em>THE HOST</em>
+            </button>
+            <button class="character-card" type="button" role="radio" aria-checked="false" data-character="scholar">
+              <span class="portrait portrait-scholar"><i>04</i></span><span class="character-meta"><b>ÂLİM</b><small>YASAK BİLGİ</small></span><em>THE SCHOLAR</em>
+            </button>
+            <button class="character-card" type="button" role="radio" aria-checked="false" data-character="penitent">
+              <span class="portrait portrait-penitent"><i>05</i></span><span class="character-meta"><b>GÜNAHKÂR</b><small>BEDEL ÖDENDİ</small></span><em>THE PENITENT</em>
+            </button>
+            <button class="character-card" type="button" role="radio" aria-checked="false" data-character="hollow">
+              <span class="portrait portrait-hollow"><i>06</i></span><span class="character-meta"><b>BOŞLUK</b><small>YÜZÜ YOK</small></span><em>THE HOLLOW</em>
+            </button>
+          </div>
           <p class="fine-print">Oyuna girerek 13 yaşından büyük olduğunu onaylarsın.</p>
-        </div>
+        </section>
+        <div class="home-edge-data" aria-hidden="true"><span>CHAMBER STATUS / DORMANT</span><i></i><b>∞</b></div>
       </section>
 
       <section id="room-screen" class="screen room-screen hidden">
@@ -141,6 +186,6 @@
     </dialog>
 
     <script src="/socket.io/socket.io.js"></script>
-    <script type="module" src="/game.js?v=20260813-liminal3"></script>
+    <script type="module" src="/game.js?v=20260813-eldritch-home"></script>
   </body>
 </html>

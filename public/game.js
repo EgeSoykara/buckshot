@@ -20,6 +20,8 @@ ui.rulesClose = $("#rules-close");
 ui.reticle = $("#aim-reticle");
 ui.turnAnnouncer = $("#turn-announcer");
 ui.turnAnnouncerName = $("#turn-announcer-name");
+ui.characterList = $("#character-list");
+ui.characterButtons = [...document.querySelectorAll(".character-card")];
 
 const itemInfo = {
   magnifier: { name: "BÜYÜTEÇ", mark: "◉", description: "Sıradaki fişeği gizlice gör." },
@@ -41,6 +43,43 @@ let audioContext;
 let hoveredPlayerId = null;
 let selectedTargetId = null;
 let previousCurrentPlayerId = null;
+
+const characterIds = new Set(ui.characterButtons.map((button) => button.dataset.character));
+let selectedCharacter = localStorage.getItem("last-chamber-character");
+if (!characterIds.has(selectedCharacter)) selectedCharacter = "mariner";
+
+function selectCharacter(characterId, announce = false) {
+  if (!characterIds.has(characterId)) return;
+  selectedCharacter = characterId;
+  localStorage.setItem("last-chamber-character", characterId);
+  document.body.dataset.character = characterId;
+  ui.characterButtons.forEach((button) => {
+    const selected = button.dataset.character === characterId;
+    button.classList.toggle("selected", selected);
+    button.setAttribute("aria-checked", String(selected));
+  });
+  if (announce) {
+    const name = ui.characterButtons.find((button) => button.dataset.character === characterId)?.querySelector(".character-meta b")?.textContent;
+    showToast(`${name ?? "Karakter"} seçildi.`);
+    playTone(190, .09, "triangle", .035);
+  }
+}
+
+selectCharacter(selectedCharacter);
+ui.characterButtons.forEach((button) => button.addEventListener("click", () => selectCharacter(button.dataset.character, true)));
+
+if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  ui.home.addEventListener("pointermove", (event) => {
+    const x = (event.clientX / innerWidth - .5) * -15;
+    const y = (event.clientY / innerHeight - .5) * -10;
+    ui.home.style.setProperty("--parallax-x", `${x}px`);
+    ui.home.style.setProperty("--parallax-y", `${y}px`);
+  });
+  ui.home.addEventListener("pointerleave", () => {
+    ui.home.style.setProperty("--parallax-x", "0px");
+    ui.home.style.setProperty("--parallax-y", "0px");
+  });
+}
 
 const savedName = localStorage.getItem("last-chamber-name");
 if (savedName) ui.name.value = savedName;
