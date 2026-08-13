@@ -18,13 +18,24 @@ ui.rules = $("#rules-dialog");
 ui.rulesButton = $("#rules-button");
 ui.rulesClose = $("#rules-close");
 
-const itemNames = { scanner: "TARAYICI", medkit: "İLK YARDIM", extractor: "ÇIKARICI", shield: "KALKAN" };
+const itemInfo = {
+  magnifier: { name: "BÜYÜTEÇ", mark: "◉", description: "Sıradaki fişeği gizlice gör." },
+  beer: { name: "BİRA", mark: "▰", description: "Sıradaki fişeği ateşlemeden çıkar." },
+  cigarettes: { name: "SİGARA", mark: "═", description: "Bir can yenile." },
+  handcuffs: { name: "KELEPÇE", mark: "∞", description: "Sıradaki rakibin turunu atla." },
+  handsaw: { name: "EL TESTERESİ", mark: "╱", description: "Sonraki dolu fişeği 2 hasara çıkar." },
+  phone: { name: "TELEFON", mark: "▯", description: "Rastgele bir fişeğin yerini öğren." },
+  inverter: { name: "ÇEVİRİCİ", mark: "⇄", description: "Sıradaki fişeği dolu/boş tersine çevir." },
+  adrenaline: { name: "ADRENALİN", mark: "✦", description: "Rakipten rastgele ekipman çal." },
+  medicine: { name: "ESKİ İLAÇ", mark: "+", description: "Şansa göre 2 can kazan veya 1 kaybet." }
+};
 let state = null;
 let turnEndAt = 0;
 let toastTimer;
 let secretTimer;
 let soundEnabled = true;
 let audioContext;
+let hoveredPlayerId = null;
 
 const savedName = localStorage.getItem("last-chamber-name");
 if (savedName) ui.name.value = savedName;
@@ -141,6 +152,7 @@ socket.on("game:secret", ({ message }) => {
   secretTimer = setTimeout(() => ui.secret.classList.add("hidden"), 4000);
 });
 socket.on("game:shot", (result) => animateShot(result));
+socket.on("game:item-used", (result) => animateItem(result));
 
 function renderState() {
   const me = state.players.find((player) => player.id === state.viewerId);
@@ -149,7 +161,7 @@ function renderState() {
   ui.playerCount.textContent = `${state.players.length}/6`;
   ui.playerList.innerHTML = state.players.map((player, index) => {
     const hearts = Array.from({ length: 3 }, (_, heart) => `<i class="heart ${heart >= player.health ? "empty" : ""}"></i>`).join("");
-    const flags = [player.id === state.hostId ? "ODA SAHİBİ" : "", !player.connected ? "KOPTU" : ""].filter(Boolean).join(" · ");
+    const flags = [player.id === state.hostId ? "ODA SAHİBİ" : "", !player.connected ? "KOPTU" : "", player.skipTurns ? "KELEPÇELİ" : "", player.sawed ? "KESİK NAMLU" : "", player.items.length ? `${player.items.length} EKİPMAN` : ""].filter(Boolean).join(" · ");
     return `<div class="player-card ${player.id === state.currentPlayerId ? "current" : ""} ${!player.alive ? "dead" : ""} ${!player.connected ? "disconnected" : ""}">
       <span class="player-index">${String(index + 1).padStart(2, "0")}</span>
       <div class="player-meta"><b>${escapeHtml(player.name)}${player.id === state.viewerId ? " · SEN" : ""}</b><span>${flags || (player.alive ? "MASADA" : "ELENDİ")}</span></div>
@@ -179,11 +191,20 @@ function renderState() {
     ui.targetList.innerHTML = state.players.filter((player) => player.alive).map((player) =>
       `<button class="target-button ${player.id === state.viewerId ? "self" : ""}" data-target="${player.id}" ${myTurn ? "" : "disabled"}>${player.id === state.viewerId ? "KENDİNE" : escapeHtml(player.name)}</button>`
     ).join("");
-    ui.targetList.querySelectorAll("button").forEach((button) => button.addEventListener("click", () => {
-      socket.emit("game:shoot", { targetId: button.dataset.target });
-      disableActions();
-    }));
-    ui.itemList.innerHTML = (me?.items ?? []).map((item) => `<button class="item-button" data-item="${item}" ${myTurn ? "" : "disabled"}>${itemNames[item] ?? item}</button>`).join("") || "<span class='micro'>EKİPMAN YOK</span>";
+    ui.targetList.querySelectorAll("button").forEach((button) => {
+      button.addEventListener("pointerenter", () => setHoveredTarget(button.dataset.target));
+      button.addEventListener("pointerleave", () => setHoveredTarget(null));
+      button.addEventListener("focus", () => setHoveredTarget(button.dataset.target));
+      button.addEventListener("blur", () => setHoveredTarget(null));
+      button.addEventListener("click", () => {
+        socket.emit("game:shoot", { targetId: button.dataset.target });
+        disableActions();
+      });
+    });
+    ui.itemList.innerHTML = (me?.items ?? []).map((item) => {
+      const info = itemInfo[item] ?? { name: item, mark: "·", description: item };
+      return `<button class="item-button" data-item="${item}" title="${info.description}" ${myTurn ? "" : "disabled"}><i>${info.mark}</i><span>${info.name}</span></button>`;
+    }).join("") || "<span class='micro'>EKİPMAN YOK</span>";
     ui.itemList.querySelectorAll("button").forEach((button) => button.addEventListener("click", () => {
       socket.emit("game:item", { item: button.dataset.item });
       disableActions();
@@ -193,6 +214,7 @@ function renderState() {
     ui.winnerName.textContent = winner?.name ?? "KAZANAN";
   }
   syncSeats(state.players);
+  syncItemProps(me?.items ?? []);
 }
 
 function disableActions() {
@@ -243,6 +265,22 @@ floor.position.y = -2.65;
 floor.receiveShadow = true;
 scene.add(floor);
 
+const backWall = new THREE.Mesh(new THREE.PlaneGeometry(30, 14), new THREE.MeshStandardMaterial({ color: 0x151411, roughness: 1 }));
+backWall.position.set(0, 3.5, -9);
+backWall.receiveShadow = true;
+scene.add(backWall);
+for (let x = -12; x <= 12; x += 4) {
+  const beam = new THREE.Mesh(new THREE.BoxGeometry(.18, 12, .28), new THREE.MeshStandardMaterial({ color: 0x292621, roughness: .75, metalness: .35 }));
+  beam.position.set(x, 2.8, -8.8);
+  scene.add(beam);
+}
+const lampShade = new THREE.Mesh(new THREE.CylinderGeometry(.28, 1.35, .9, 20, 1, true), new THREE.MeshStandardMaterial({ color: 0x161614, roughness: .38, metalness: .75, side: THREE.DoubleSide }));
+lampShade.position.set(-1.4, 6.8, .3);
+scene.add(lampShade);
+const lampBulb = new THREE.Mesh(new THREE.SphereGeometry(.32, 12, 8), new THREE.MeshStandardMaterial({ color: 0xffdca0, emissive: 0xffb84f, emissiveIntensity: 5 }));
+lampBulb.position.set(-1.4, 6.4, .3);
+scene.add(lampBulb);
+
 const table = new THREE.Group();
 const tableTop = new THREE.Mesh(new THREE.CylinderGeometry(5.4, 5.7, .42, 10), new THREE.MeshStandardMaterial({ color: 0x2a2118, roughness: .72, metalness: .05 }));
 tableTop.position.y = -1.1;
@@ -252,6 +290,11 @@ const felt = new THREE.Mesh(new THREE.CylinderGeometry(4.8, 4.8, .055, 64), new 
 felt.position.y = -.86;
 felt.receiveShadow = true;
 table.add(felt);
+const tableRim = new THREE.Mesh(new THREE.TorusGeometry(5.08, .17, 10, 10), new THREE.MeshStandardMaterial({ color: 0x4b3422, roughness: .58, metalness: .08 }));
+tableRim.rotation.x = Math.PI / 2;
+tableRim.position.y = -.78;
+tableRim.castShadow = true;
+table.add(tableRim);
 for (let i = 0; i < 4; i += 1) {
   const leg = new THREE.Mesh(new THREE.BoxGeometry(.42, 2, .42), new THREE.MeshStandardMaterial({ color: 0x17120d, roughness: .8 }));
   leg.position.set(Math.cos(i * Math.PI / 2 + .7) * 3.5, -1.8, Math.sin(i * Math.PI / 2 + .7) * 3.5);
@@ -269,6 +312,11 @@ barrel.rotation.z = Math.PI / 2;
 barrel.position.x = -.3;
 barrel.castShadow = true;
 gun.add(barrel);
+const pump = new THREE.Mesh(new THREE.CylinderGeometry(.39, .39, 1.35, 12), wood);
+pump.rotation.z = Math.PI / 2;
+pump.position.set(.55, -.02, 0);
+pump.castShadow = true;
+gun.add(pump);
 const muzzle = new THREE.Mesh(new THREE.TorusGeometry(.225, .06, 8, 18), wornMetal);
 muzzle.rotation.y = Math.PI / 2;
 muzzle.position.x = 2.3;
@@ -287,8 +335,15 @@ grip.position.set(-2.05, -.8, 0);
 grip.rotation.z = -.28;
 grip.castShadow = true;
 gun.add(grip);
-gun.position.set(.6, -.2, .1);
-gun.rotation.y = -.22;
+const triggerGuard = new THREE.Mesh(new THREE.TorusGeometry(.31, .055, 8, 14, Math.PI * 1.4), darkMetal);
+triggerGuard.rotation.set(Math.PI / 2, 0, -.55);
+triggerGuard.position.set(-1.55, -.56, 0);
+gun.add(triggerGuard);
+const muzzleLight = new THREE.PointLight(0xffb14a, 0, 6, 2);
+muzzleLight.position.set(2.55, 0, 0);
+gun.add(muzzleLight);
+gun.position.set(0, -.2, 0);
+gun.rotation.y = 0;
 gun.rotation.z = .04;
 scene.add(gun);
 
@@ -308,23 +363,159 @@ for (let i = 0; i < 8; i += 1) {
 }
 scene.add(shells);
 
+function makeNameSprite(name, color = "#d7ff3f") {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 128;
+  const context = canvas.getContext("2d");
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = "rgba(8,8,7,.88)";
+  context.fillRect(8, 8, 496, 112);
+  context.strokeStyle = color;
+  context.lineWidth = 3;
+  context.strokeRect(8, 8, 496, 112);
+  context.fillStyle = "#f0ede5";
+  context.font = "700 42px Arial";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(String(name).slice(0, 18).toUpperCase(), 256, 64, 450);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false }));
+  sprite.scale.set(1.68, .42, 1);
+  return sprite;
+}
+
 const seats = [];
-const seatColors = [0x854038, 0x394f65, 0x58643b, 0x69436b, 0x735332, 0x3f6560];
+const seatColors = [0x7d3026, 0x29465b, 0x4d5d2d, 0x5e315e, 0x684620, 0x28594f];
 for (let i = 0; i < 6; i += 1) {
   const angle = i / 6 * Math.PI * 2 + Math.PI / 2;
   const seat = new THREE.Group();
-  const chair = new THREE.Mesh(new THREE.BoxGeometry(1.4, 2.1, .35), new THREE.MeshStandardMaterial({ color: seatColors[i], roughness: .86 }));
-  chair.position.y = .1;
-  chair.castShadow = true;
-  const head = new THREE.Mesh(new THREE.SphereGeometry(.38, 16, 12), new THREE.MeshStandardMaterial({ color: 0x161513, roughness: .95 }));
-  head.position.set(0, 1.75, -.1);
-  head.castShadow = true;
-  seat.add(chair, head);
-  seat.position.set(Math.cos(angle) * 6.1, -1.15, Math.sin(angle) * 6.1);
+  const chairMaterial = new THREE.MeshStandardMaterial({ color: 0x241c16, roughness: .8 });
+  const clothing = new THREE.MeshStandardMaterial({ color: seatColors[i], roughness: .88 });
+  const skin = new THREE.MeshStandardMaterial({ color: [0xa66e4e, 0x71452f, 0xc18a68, 0x80533b, 0xb77855, 0x63402f][i], roughness: .9 });
+  const chairBack = new THREE.Mesh(new THREE.BoxGeometry(1.45, 2.05, .22), chairMaterial);
+  chairBack.position.set(0, .2, .48);
+  const chairSeat = new THREE.Mesh(new THREE.BoxGeometry(1.55, .22, 1.45), chairMaterial);
+  chairSeat.position.set(0, -.62, -.08);
+  const torso = new THREE.Mesh(new THREE.CylinderGeometry(.42, .62, 1.35, 8), clothing);
+  torso.position.set(0, .45, 0);
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(.18, .2, .28, 10), skin);
+  neck.position.set(0, 1.25, -.05);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(.43, 18, 14), skin);
+  head.scale.set(.88, 1.08, .9);
+  head.position.set(0, 1.68, -.08);
+  const hair = new THREE.Mesh(new THREE.SphereGeometry(.445, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x151310, roughness: .96 }));
+  hair.position.set(0, 1.77, -.06);
+  const eyeMaterial = new THREE.MeshStandardMaterial({ color: 0xd7ff3f, emissive: 0x89a522, emissiveIntensity: 2.5 });
+  for (const side of [-1, 1]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(.035, 8, 6), eyeMaterial);
+    eye.position.set(side * .15, 1.72, -.45);
+    seat.add(eye);
+  }
+  for (const side of [-1, 1]) {
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(.15, .18, 1.42, 10), clothing);
+    arm.rotation.x = Math.PI / 2.35;
+    arm.rotation.z = side * -.18;
+    arm.position.set(side * .57, .42, -.53);
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(.17, 10, 8), skin);
+    hand.position.set(side * .68, -.02, -1.06);
+    seat.add(arm, hand);
+  }
+  for (const part of [chairBack, chairSeat, torso, neck, head, hair]) {
+    part.castShadow = true;
+    seat.add(part);
+  }
+  const activeRing = new THREE.Mesh(new THREE.TorusGeometry(.9, .035, 8, 32), new THREE.MeshStandardMaterial({ color: 0xd7ff3f, emissive: 0x728a1d, emissiveIntensity: 2, transparent: true, opacity: .8 }));
+  activeRing.rotation.x = Math.PI / 2;
+  activeRing.position.y = -.73;
+  activeRing.visible = false;
+  seat.add(activeRing);
+  seat.userData.activeRing = activeRing;
+  seat.userData.label = null;
+  seat.userData.labelName = "";
+  seat.position.set(Math.cos(angle) * 5.75, -1.08, Math.sin(angle) * 5.75);
   seat.rotation.y = -angle + Math.PI / 2;
   seat.visible = false;
   scene.add(seat);
   seats.push(seat);
+}
+
+const itemProps = new THREE.Group();
+itemProps.position.set(-.25, -.66, 2.4);
+scene.add(itemProps);
+let itemPropSignature = "";
+let itemPulseUntil = 0;
+
+function makeItemProp(type) {
+  const prop = new THREE.Group();
+  const steel = new THREE.MeshStandardMaterial({ color: 0x77776f, roughness: .3, metalness: .75 });
+  const brassItem = new THREE.MeshStandardMaterial({ color: 0xb48a3b, roughness: .35, metalness: .55 });
+  const red = new THREE.MeshStandardMaterial({ color: 0x8b2117, roughness: .62 });
+  const paper = new THREE.MeshStandardMaterial({ color: 0xd0c8b5, roughness: .92 });
+  const glass = new THREE.MeshStandardMaterial({ color: 0x5d3317, roughness: .25, metalness: .15, transparent: true, opacity: .86 });
+  const add = (geometry, material, position = [0, 0, 0], rotation = [0, 0, 0]) => {
+    const part = new THREE.Mesh(geometry, material);
+    part.position.set(...position);
+    part.rotation.set(...rotation);
+    part.castShadow = true;
+    prop.add(part);
+    return part;
+  };
+  if (type === "magnifier") {
+    add(new THREE.TorusGeometry(.28, .055, 10, 24), steel, [0, .18, 0], [Math.PI / 2, 0, 0]);
+    add(new THREE.CylinderGeometry(.05, .06, .5, 8), steel, [.35, .05, 0], [0, 0, -Math.PI / 4]);
+  } else if (type === "beer") {
+    add(new THREE.CylinderGeometry(.16, .2, .72, 12), glass, [0, .36, 0]);
+    add(new THREE.CylinderGeometry(.09, .12, .28, 12), glass, [0, .85, 0]);
+    add(new THREE.CylinderGeometry(.1, .1, .04, 12), brassItem, [0, 1.01, 0]);
+  } else if (type === "cigarettes") {
+    add(new THREE.BoxGeometry(.52, .16, .72), paper, [0, .08, 0]);
+    for (const x of [-.16, 0, .16]) add(new THREE.CylinderGeometry(.035, .035, .6, 8), paper, [x, .18, 0], [Math.PI / 2, 0, 0]);
+  } else if (type === "handcuffs") {
+    add(new THREE.TorusGeometry(.22, .045, 8, 20), steel, [-.25, .13, 0], [Math.PI / 2, 0, 0]);
+    add(new THREE.TorusGeometry(.22, .045, 8, 20), steel, [.25, .13, 0], [Math.PI / 2, 0, 0]);
+    add(new THREE.BoxGeometry(.25, .05, .05), steel, [0, .13, 0]);
+  } else if (type === "handsaw") {
+    add(new THREE.BoxGeometry(.95, .06, .28), steel, [.08, .15, 0], [0, -.12, 0]);
+    add(new THREE.BoxGeometry(.34, .16, .4), new THREE.MeshStandardMaterial({ color: 0x3f2014, roughness: .7 }), [-.54, .15, 0]);
+  } else if (type === "phone") {
+    add(new THREE.BoxGeometry(.52, .12, .86), new THREE.MeshStandardMaterial({ color: 0x171a17, roughness: .45, metalness: .3 }), [0, .08, 0]);
+    add(new THREE.BoxGeometry(.38, .02, .56), new THREE.MeshStandardMaterial({ color: 0x6d8b72, emissive: 0x1d3822, emissiveIntensity: 1.5 }), [0, .15, -.02]);
+  } else if (type === "inverter") {
+    add(new THREE.CylinderGeometry(.13, .13, .72, 10), red, [0, .14, 0], [0, 0, Math.PI / 2]);
+    add(new THREE.CylinderGeometry(.14, .14, .22, 10), brassItem, [.43, .14, 0], [0, 0, Math.PI / 2]);
+    add(new THREE.TorusGeometry(.25, .035, 8, 18), steel, [0, .14, 0], [Math.PI / 2, 0, 0]);
+  } else if (type === "adrenaline") {
+    add(new THREE.CylinderGeometry(.07, .07, .78, 10), new THREE.MeshStandardMaterial({ color: 0xa9d9ba, transparent: true, opacity: .72 }), [0, .15, 0], [0, 0, Math.PI / 2]);
+    add(new THREE.CylinderGeometry(.09, .09, .08, 10), steel, [-.44, .15, 0], [0, 0, Math.PI / 2]);
+    add(new THREE.CylinderGeometry(.018, .018, .4, 6), steel, [.58, .15, 0], [0, 0, Math.PI / 2]);
+  } else {
+    add(new THREE.CylinderGeometry(.23, .25, .48, 12), paper, [0, .25, 0]);
+    add(new THREE.CylinderGeometry(.18, .2, .13, 12), red, [0, .56, 0]);
+    add(new THREE.BoxGeometry(.18, .04, .04), red, [0, .26, -.24]);
+    add(new THREE.BoxGeometry(.04, .18, .04), red, [0, .26, -.24]);
+  }
+  prop.scale.setScalar(.72);
+  return prop;
+}
+
+function syncItemProps(items) {
+  const signature = items.join("|");
+  if (signature === itemPropSignature) return;
+  itemPropSignature = signature;
+  itemProps.traverse((object) => {
+    object.geometry?.dispose();
+    if (Array.isArray(object.material)) object.material.forEach((material) => material.dispose());
+    else object.material?.dispose();
+  });
+  itemProps.clear();
+  items.slice(0, 4).forEach((item, index) => {
+    const prop = makeItemProp(item);
+    prop.position.set((index - (Math.min(items.length, 4) - 1) / 2) * .95, 0, 0);
+    prop.rotation.y = (index - 1.5) * .12;
+    itemProps.add(prop);
+  });
 }
 
 const dustGeometry = new THREE.BufferGeometry();
@@ -345,15 +536,54 @@ function syncSeats(players) {
       const player = players[index];
       seat.scale.setScalar(player.alive ? 1 : .88);
       seat.rotation.z = player.alive ? 0 : -.18;
+      seat.userData.activeRing.visible = player.id === state.currentPlayerId || player.id === hoveredPlayerId;
+      if (seat.userData.labelName !== player.name) {
+        if (seat.userData.label) seat.remove(seat.userData.label);
+        seat.userData.label = makeNameSprite(player.name, player.id === state.viewerId ? "#d7ff3f" : "#8b877d");
+        seat.userData.label.position.set(0, 2.65, .05);
+        seat.add(seat.userData.label);
+        seat.userData.labelName = player.name;
+      }
     }
   });
   shells.children.forEach((shell, index) => { shell.visible = state?.phase === "playing" && index < state.shellsRemaining; });
+  const current = players.find((player) => player.id === state.currentPlayerId);
+  barrel.scale.y = current?.sawed ? .68 : 1;
+  barrel.position.x = current?.sawed ? -.72 : -.3;
+  muzzle.position.x = current?.sawed ? .46 : 2.3;
+  pump.position.x = current?.sawed ? -.1 : .55;
+  pendingGunPlayerId = state.currentPlayerId;
+}
+
+function setHoveredTarget(playerId) {
+  hoveredPlayerId = playerId;
+  seats.forEach((seat, index) => {
+    const id = state?.players[index]?.id;
+    seat.userData.activeRing.visible = id === state?.currentPlayerId || id === hoveredPlayerId;
+  });
+  if (playerId) aimGunAt(playerId);
+  else pendingGunPlayerId = state?.currentPlayerId ?? null;
 }
 
 let desiredCamera = new THREE.Vector3(8.6, 7.1, 10.8);
+let desiredGunYaw = 0;
+let pendingGunPlayerId = null;
+let shotLockUntil = 0;
+let gunRecoil = 0;
+let pumpAction = 0;
+let muzzleEnergy = 0;
+
+function aimGunAt(playerId) {
+  const index = state?.players.findIndex((player) => player.id === playerId) ?? -1;
+  if (index < 0 || !seats[index]) return;
+  const position = seats[index].position;
+  desiredGunYaw = -Math.atan2(position.z, position.x);
+}
+
 function sceneMode(phase) {
-  desiredCamera = phase === "playing" ? new THREE.Vector3(6.4, 6.1, 8.2) : new THREE.Vector3(8.6, 7.1, 10.8);
+  desiredCamera = phase === "playing" ? new THREE.Vector3(7.2, 6.4, 9.2) : new THREE.Vector3(8.6, 7.1, 10.8);
   gun.visible = phase !== "lobby";
+  itemProps.visible = phase === "playing";
 }
 sceneMode("lobby");
 
@@ -373,17 +603,28 @@ function playTone(frequency, duration, type = "square", gain = .07) {
 }
 
 function animateShot(result) {
-  const initial = gun.rotation.z;
+  aimGunAt(result.targetId);
+  shotLockUntil = performance.now() + 700;
+  gunRecoil = 1;
+  pumpAction = 1;
   gun.rotation.z -= .2;
-  setTimeout(() => { gun.rotation.z = initial; }, 170);
+  setTimeout(() => { gun.rotation.z = .04; }, 170);
   if (result.shell === "live") {
     ui.flash.classList.remove("fire");
     void ui.flash.offsetWidth;
     ui.flash.classList.add("fire");
+    muzzleEnergy = 1;
     playTone(85, .42, "sawtooth", .15);
   } else {
     playTone(160, .08, "square", .045);
   }
+}
+
+function animateItem({ item }) {
+  itemPulseUntil = performance.now() + 650;
+  const info = itemInfo[item];
+  showToast(`${info?.name ?? "Ekipman"} kullanıldı.`);
+  playTone(280, .13, "triangle", .055);
 }
 
 const clock = new THREE.Clock();
@@ -391,7 +632,27 @@ function frame() {
   const time = clock.getElapsedTime();
   camera.position.lerp(desiredCamera, .025);
   camera.lookAt(0, -.25, 0);
+  if (performance.now() > shotLockUntil && pendingGunPlayerId) aimGunAt(pendingGunPlayerId);
+  const yawDelta = Math.atan2(Math.sin(desiredGunYaw - gun.rotation.y), Math.cos(desiredGunYaw - gun.rotation.y));
+  gun.rotation.y += yawDelta * .075;
+  gunRecoil *= .86;
+  pumpAction *= .88;
+  muzzleEnergy *= .76;
+  gun.position.x = -Math.cos(gun.rotation.y) * gunRecoil * .36;
+  gun.position.z = Math.sin(gun.rotation.y) * gunRecoil * .36;
   gun.position.y = -.2 + Math.sin(time * .7) * .014;
+  pump.position.x = (barrel.scale.y < 1 ? -.1 : .55) - pumpAction * .52;
+  muzzleLight.position.x = muzzle.position.x + .22;
+  muzzleLight.intensity = muzzleEnergy * 85;
+  seats.forEach((seat, index) => {
+    if (!seat.visible) return;
+    const active = state?.players[index]?.id === state?.currentPlayerId;
+    seat.position.y = -1.08 + Math.sin(time * 1.15 + index) * (active ? .035 : .012);
+    if (seat.userData.activeRing) seat.userData.activeRing.rotation.z = time * .7;
+  });
+  const itemPulse = performance.now() < itemPulseUntil ? 1 + Math.sin(time * 28) * .12 : 1;
+  itemProps.scale.setScalar(itemPulse);
+  itemProps.children.forEach((prop, index) => { prop.rotation.y += .003 * (index % 2 ? 1 : -1); });
   dust.rotation.y = time * .008;
   keyLight.intensity = 92 + Math.sin(time * 2.1) * 4 + Math.sin(time * 7.7) * 2;
   renderer.render(scene, camera);

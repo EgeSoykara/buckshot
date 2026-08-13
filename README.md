@@ -18,7 +18,8 @@ Kurulum veya hesap gerekmez. Oda en fazla 6 kişiyi destekler. Bağlantısı kı
 - Kendine gelen boş fişek sıranı korur. Diğer bütün atışlardan sonra sıra ilerler.
 - Hazne bitince dolu ve boş fişeklerden oluşan yeni bir hazne yüklenir.
 - Son hayatta kalan oyuncu kazanır.
-- **Tarayıcı** sıradaki fişeği yalnızca sana gösterir; **İlk Yardım** bir can yeniler; **Çıkarıcı** sıradaki fişeği atar; **Kalkan** bir dolu fişeği engeller.
+- **Büyüteç** sıradaki fişeği gösterir; **Bira** fişeği çıkarır; **Sigara** can yeniler; **Kelepçe** rakibin turunu atlar; **El Testeresi** dolu fişeği 2 hasara çıkarır.
+- **Telefon** rastgele bir fişeği bildirir; **Çevirici** sıradaki fişeği tersine çevirir; **Adrenalin** ekipman çalar; **Eski İlaç** şansa bağlı can kazandırır veya kaybettirir.
 - Bir tur 30 saniyedir. Süre dolarsa sunucu otomatik hedef seçer.
 
 ## Render'a yayınlama

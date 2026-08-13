@@ -54,20 +54,49 @@ test("canı biten oyuncu elenir ve son kalan kazanır", () => {
   assert.equal(room.player("p2").alive, false);
 });
 
-test("ekipmanlar tüketilir ve kalkan tek dolu fişeği durdurur", () => {
+test("masa ekipmanları fişekleri, canı, hasarı ve sırayı değiştirir", () => {
+  const room = new GameRoom("ABCDE", "p1", "Bir");
+  room.addPlayer("p2", "İki");
+  room.addPlayer("p3", "Üç");
+  room.start("p1", 1000);
+  const actor = room.player("p1");
+  actor.health = 2;
+  actor.items = ["magnifier", "inverter", "beer", "cigarettes", "handcuffs", "handsaw"];
+  room.magazine = ["live", "blank", "live"];
+
+  assert.match(room.useItem("p1", "magnifier", 1100).privateMessage, /DOLU/);
+  room.useItem("p1", "inverter", 1200);
+  assert.equal(room.magazine[0], "blank");
+  assert.match(room.useItem("p1", "beer", 1300).privateMessage, /Boş/);
+  room.useItem("p1", "cigarettes", 1400);
+  assert.equal(actor.health, STARTING_HEALTH);
+  room.useItem("p1", "handcuffs", 1500);
+  assert.equal(room.player("p2").skipTurns, 1);
+  room.useItem("p1", "handsaw", 1600);
+  assert.equal(actor.sawed, true);
+
+  room.magazine = ["live", "blank"];
+  const shot = room.shoot("p1", "p3", 2000);
+  assert.equal(shot.damage, 2);
+  assert.equal(room.player("p3").health, 1);
+  assert.equal(actor.sawed, false);
+  assert.equal(room.player("p2").skipTurns, 0);
+  assert.equal(room.currentPlayerId, "p3");
+  assert.deepEqual(actor.items, []);
+});
+
+test("telefon bilgi verir ve adrenalin rakip ekipmanı çalar", () => {
   const room = new GameRoom("ABCDE", "p1", "Bir");
   room.addPlayer("p2", "İki");
   room.start("p1", 1000);
-  room.player("p1").items = ["shield"];
-  room.useItem("p1", "shield", 1500);
-  assert.equal(room.player("p1").shielded, true);
-  assert.deepEqual(room.player("p1").items, []);
+  room.magazine = ["blank", "live", "blank"];
+  room.player("p1").items = ["phone", "adrenaline"];
+  room.player("p2").items = ["handsaw"];
 
-  room.magazine = ["live", "blank"];
-  const shot = room.shoot("p1", "p1", 2000);
-  assert.equal(shot.blocked, true);
-  assert.equal(room.player("p1").health, STARTING_HEALTH);
-  assert.equal(room.player("p1").shielded, false);
+  assert.match(room.useItem("p1", "phone", 1200).privateMessage, /fişek/);
+  room.useItem("p1", "adrenaline", 1300);
+  assert.deepEqual(room.player("p1").items, ["handsaw"]);
+  assert.deepEqual(room.player("p2").items, []);
 });
 
 test("oturum anahtarıyla yeniden bağlanma kimliği ve sırayı taşır", () => {
