@@ -519,7 +519,7 @@ setInterval(() => {
 
 // Procedural Three.js table and characters. Every seat is rebuilt from the server-authoritative identity.
 const renderer = new THREE.WebGLRenderer({ canvas: $("#scene"), antialias: true, alpha: false, powerPreference: "high-performance" });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 1.4));
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.8));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -538,7 +538,9 @@ scene.add(new THREE.AmbientLight(0x789e94, 1.55));
 const keyLight = new THREE.SpotLight(0xd9eadf, 310, 36, Math.PI / 3.7, .7, 1.2);
 keyLight.position.set(-3, 10, 4);
 keyLight.castShadow = true;
-keyLight.shadow.mapSize.set(1024, 1024);
+keyLight.shadow.mapSize.set(2048, 2048);
+keyLight.shadow.bias = -.00018;
+keyLight.shadow.normalBias = .025;
 scene.add(keyLight);
 const fillLight = new THREE.SpotLight(0x6fb8b0, 165, 30, Math.PI / 2.8, .82, 1.15);
 fillLight.position.set(8, 7, 6);
@@ -630,27 +632,37 @@ fan.position.set(2.8, 6.9, -1.6);
 fan.rotation.x = Math.PI / 2;
 scene.add(fan);
 
+const tableWoodTexture = makeSurfaceTexture("wood", 5, 2);
+const feltTexture = makeSurfaceTexture("felt", 7, 7);
 const table = new THREE.Group();
-const tableTop = new THREE.Mesh(new THREE.CylinderGeometry(5.4, 5.7, .42, 10), new THREE.MeshStandardMaterial({ color: 0x180e09, roughness: .74, metalness: .04 }));
+const tableTop = new THREE.Mesh(new THREE.CylinderGeometry(5.4, 5.7, .42, 96), new THREE.MeshPhysicalMaterial({ color: 0x3b2014, map: tableWoodTexture, bumpMap: tableWoodTexture, bumpScale: .045, roughness: .58, metalness: .02, clearcoat: .24, clearcoatRoughness: .45 }));
 tableTop.position.y = -1.1;
 tableTop.castShadow = tableTop.receiveShadow = true;
 table.add(tableTop);
-const felt = new THREE.Mesh(new THREE.CylinderGeometry(4.8, 4.8, .055, 64), new THREE.MeshStandardMaterial({ color: 0x0a1d19, emissive: 0x04100d, emissiveIntensity: .28, roughness: .96 }));
+const felt = new THREE.Mesh(new THREE.CylinderGeometry(4.8, 4.8, .055, 128), new THREE.MeshPhysicalMaterial({ color: 0x173c35, map: feltTexture, bumpMap: feltTexture, bumpScale: .075, emissive: 0x04100d, emissiveIntensity: .2, roughness: .93, sheen: .28, sheenColor: 0x8fbbae }));
 felt.position.y = -.86;
 felt.receiveShadow = true;
 table.add(felt);
-const tableRim = new THREE.Mesh(new THREE.TorusGeometry(5.08, .17, 10, 10), new THREE.MeshStandardMaterial({ color: 0x533724, roughness: .52, metalness: .12 }));
+const tableRim = new THREE.Mesh(new THREE.TorusGeometry(5.08, .17, 18, 128), new THREE.MeshPhysicalMaterial({ color: 0x6c4128, map: tableWoodTexture, bumpMap: tableWoodTexture, bumpScale: .035, roughness: .42, metalness: .06, clearcoat: .4, clearcoatRoughness: .34 }));
 tableRim.rotation.x = Math.PI / 2;
 tableRim.position.y = -.78;
 tableRim.castShadow = true;
 table.add(tableRim);
 for (let i = 0; i < 4; i += 1) {
-  const leg = new THREE.Mesh(new THREE.BoxGeometry(.42, 2, .42), new THREE.MeshStandardMaterial({ color: 0x20150f, roughness: .84 }));
+  const leg = new THREE.Mesh(new THREE.CylinderGeometry(.3, .42, 2, 16), new THREE.MeshStandardMaterial({ color: 0x20150f, map: tableWoodTexture, roughness: .72 }));
   leg.position.set(Math.cos(i * Math.PI / 2 + .7) * 3.5, -1.8, Math.sin(i * Math.PI / 2 + .7) * 3.5);
   leg.castShadow = true;
   table.add(leg);
 }
 scene.add(table);
+
+const inlayMaterial = new THREE.MeshPhysicalMaterial({ color: 0x9a7951, roughness: .3, metalness: .78, clearcoat: .3 });
+for (const radius of [4.69, 4.92]) {
+  const inlay = new THREE.Mesh(new THREE.TorusGeometry(radius, .014, 8, 160), inlayMaterial);
+  inlay.rotation.x = Math.PI / 2;
+  inlay.position.y = -.824;
+  table.add(inlay);
+}
 
 const sigilMaterial = new THREE.MeshStandardMaterial({ color: 0x608c7d, emissive: 0x2c6d5b, emissiveIntensity: 1.65, roughness: .52, transparent: true, opacity: .72 });
 for (const radius of [1.25, 2.28, 3.55]) {
@@ -694,30 +706,76 @@ for (let i = 0; i < 16; i += 1) {
 }
 scene.add(mist);
 
-function makeSurfaceTexture(kind) {
+function makeSurfaceTexture(kind, repeatX, repeatY) {
   const canvas = document.createElement("canvas");
-  canvas.width = 512;
-  canvas.height = 128;
+  canvas.width = 1024;
+  canvas.height = 512;
   const context = canvas.getContext("2d");
-  context.fillStyle = kind === "wood" ? "#b16a3d" : "#9a9d98";
+  const palette = {
+    wood: ["#a97957", "#3b1d10", "#d2a17b"],
+    metal: ["#a6aaa5", "#252a28", "#edf0e9"],
+    felt: ["#758f83", "#253c35", "#b7c5bc"],
+    fabric: ["#9b998f", "#393934", "#d5d1c6"],
+    skin: ["#b88878", "#5d332c", "#e6b9a7"],
+    leather: ["#86583c", "#2d170f", "#c18a62"]
+  };
+  const [base, dark, light] = palette[kind] ?? palette.metal;
+  context.fillStyle = base;
   context.fillRect(0, 0, canvas.width, canvas.height);
-  for (let i = 0; i < 90; i += 1) {
-    const y = Math.random() * canvas.height;
-    context.strokeStyle = kind === "wood"
-      ? `rgba(${45 + Math.random() * 35},${18 + Math.random() * 20},8,${.08 + Math.random() * .2})`
-      : `rgba(255,255,245,${.025 + Math.random() * .06})`;
-    context.lineWidth = kind === "wood" ? .6 + Math.random() * 2.4 : .35;
+  let seed = [...kind].reduce((value, character) => value + character.charCodeAt(0), 17);
+  const random = () => {
+    seed = (seed * 16807) % 2147483647;
+    return (seed - 1) / 2147483646;
+  };
+  const grainCount = kind === "wood" ? 290 : 900;
+  for (let i = 0; i < grainCount; i += 1) {
+    const y = random() * canvas.height;
+    context.strokeStyle = random() > .72 ? light : dark;
+    context.globalAlpha = kind === "wood" ? .045 + random() * .14 : .025 + random() * .07;
+    context.lineWidth = kind === "wood" ? .5 + random() * 4.2 : .25 + random() * 1.25;
     context.beginPath();
-    context.moveTo(0, y);
-    for (let x = 0; x <= canvas.width; x += 24) {
-      context.lineTo(x, y + Math.sin(x * .035 + i) * (kind === "wood" ? 4 : .8));
+    const vertical = kind === "fabric" || kind === "felt";
+    context.moveTo(vertical && i % 2 ? random() * canvas.width : 0, vertical && i % 2 ? 0 : y);
+    if (vertical && i % 2) {
+      const x = random() * canvas.width;
+      context.moveTo(x, 0);
+      context.lineTo(x + Math.sin(i) * 2, canvas.height);
+    } else {
+      for (let x = 0; x <= canvas.width; x += 16) {
+        const wave = kind === "wood" ? Math.sin(x * .018 + i * .71) * (2 + random() * 7) : Math.sin(x * .09 + i) * .7;
+        context.lineTo(x, y + wave);
+      }
     }
     context.stroke();
+  }
+  context.globalAlpha = 1;
+  if (kind === "metal") {
+    for (let i = 0; i < 70; i += 1) {
+      context.strokeStyle = i % 4 ? "rgba(20,24,22,.18)" : "rgba(255,255,245,.2)";
+      context.lineWidth = .5 + random();
+      const x = random() * canvas.width;
+      const y = random() * canvas.height;
+      context.beginPath();
+      context.moveTo(x, y);
+      context.lineTo(x + 20 + random() * 170, y + (random() - .5) * 6);
+      context.stroke();
+    }
+  }
+  if (kind === "skin" || kind === "leather") {
+    for (let i = 0; i < 1500; i += 1) {
+      const radius = .35 + random() * 1.35;
+      context.fillStyle = random() > .5 ? dark : light;
+      context.globalAlpha = .025 + random() * .06;
+      context.beginPath();
+      context.arc(random() * canvas.width, random() * canvas.height, radius, 0, Math.PI * 2);
+      context.fill();
+    }
+    context.globalAlpha = 1;
   }
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(kind === "wood" ? 2.4 : 4, 1);
+  texture.repeat.set(repeatX ?? (kind === "wood" ? 2.4 : 4), repeatY ?? (kind === "wood" ? 1 : 3));
   texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
   return texture;
 }
@@ -1064,19 +1122,51 @@ organicContext.putImageData(organicPixels, 0, 0);
 const organicBump = new THREE.CanvasTexture(organicCanvas);
 organicBump.wrapS = organicBump.wrapT = THREE.RepeatWrapping;
 organicBump.repeat.set(3, 3);
+const characterFabricTexture = makeSurfaceTexture("fabric", 5, 5);
+const characterSkinTexture = makeSurfaceTexture("skin", 4, 4);
+const characterLeatherTexture = makeSurfaceTexture("leather", 3, 4);
+
+function makeBeveledBoxGeometry(width, height, depth, radius = .08) {
+  const halfWidth = width / 2;
+  const halfHeight = height / 2;
+  const corner = Math.min(radius, halfWidth, halfHeight);
+  const shape = new THREE.Shape();
+  shape.moveTo(-halfWidth + corner, -halfHeight);
+  shape.lineTo(halfWidth - corner, -halfHeight);
+  shape.quadraticCurveTo(halfWidth, -halfHeight, halfWidth, -halfHeight + corner);
+  shape.lineTo(halfWidth, halfHeight - corner);
+  shape.quadraticCurveTo(halfWidth, halfHeight, halfWidth - corner, halfHeight);
+  shape.lineTo(-halfWidth + corner, halfHeight);
+  shape.quadraticCurveTo(-halfWidth, halfHeight, -halfWidth, halfHeight - corner);
+  shape.lineTo(-halfWidth, -halfHeight + corner);
+  shape.quadraticCurveTo(-halfWidth, -halfHeight, -halfWidth + corner, -halfHeight);
+  const geometry = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: true, bevelSegments: 3, bevelSize: corner * .22, bevelThickness: corner * .22, curveSegments: 4 });
+  geometry.translate(0, 0, -depth / 2);
+  return geometry;
+}
+
+function makeTorsoGeometry() {
+  const profile = [
+    new THREE.Vector2(.35, -.72), new THREE.Vector2(.5, -.58), new THREE.Vector2(.57, -.16),
+    new THREE.Vector2(.62, .28), new THREE.Vector2(.55, .62), new THREE.Vector2(.43, .72),
+    new THREE.Vector2(.28, .76)
+  ];
+  return new THREE.LatheGeometry(profile, 32);
+}
 
 function makeCharacter(characterId) {
   const profile = characterProfileById.get(characterId);
   if (!profile) throw new Error(`Bilinmeyen 3B karakter: ${characterId}`);
   const seat = new THREE.Group();
-  const chairMaterial = new THREE.MeshStandardMaterial({ color: 0x3a2c22, roughness: .8 });
-  const clothing = new THREE.MeshStandardMaterial({ color: profile.coat, emissive: profile.coat, emissiveIntensity: .16, roughness: .8, bumpMap: organicBump, bumpScale: .018 });
-  const shirt = new THREE.MeshStandardMaterial({ color: profile.shirt, emissive: profile.shirt, emissiveIntensity: .11, roughness: .86, bumpMap: organicBump, bumpScale: .012 });
-  const skin = new THREE.MeshStandardMaterial({ color: profile.skin, emissive: 0x301811, emissiveIntensity: .24, roughness: .82, bumpMap: organicBump, bumpScale: .012 });
-  const hairMaterial = new THREE.MeshStandardMaterial({ color: profile.hair, roughness: .95 });
+  const chairMaterial = new THREE.MeshPhysicalMaterial({ color: 0x553626, map: characterLeatherTexture, bumpMap: characterLeatherTexture, bumpScale: .035, roughness: .62, clearcoat: .12, clearcoatRoughness: .55 });
+  const clothing = new THREE.MeshPhysicalMaterial({ color: profile.coat, map: characterFabricTexture, bumpMap: characterFabricTexture, bumpScale: .032, emissive: profile.coat, emissiveIntensity: .08, roughness: .78, sheen: .45, sheenColor: profile.coat });
+  const shirt = new THREE.MeshPhysicalMaterial({ color: profile.shirt, map: characterFabricTexture, bumpMap: characterFabricTexture, bumpScale: .024, emissive: profile.shirt, emissiveIntensity: .06, roughness: .84, sheen: .3, sheenColor: 0xb9aca0 });
+  const skin = new THREE.MeshPhysicalMaterial({ color: profile.skin, map: characterSkinTexture, bumpMap: characterSkinTexture, bumpScale: .026, emissive: 0x301811, emissiveIntensity: .1, roughness: .58, clearcoat: .08, clearcoatRoughness: .68, sheen: .18, sheenColor: 0xd18f78 });
+  const hairMaterial = new THREE.MeshPhysicalMaterial({ color: profile.hair, map: characterFabricTexture, bumpMap: characterFabricTexture, bumpScale: .04, roughness: .88, sheen: .25 });
   const accentMaterial = new THREE.MeshStandardMaterial({ color: profile.accent, emissive: profile.accent, emissiveIntensity: .65, roughness: .55 });
   const eldritchMaterial = new THREE.MeshStandardMaterial({ color: profile.eldritch, emissive: profile.eldritch, emissiveIntensity: .18, roughness: .72 });
-  const black = new THREE.MeshStandardMaterial({ color: 0x0c0c0b, roughness: .65, metalness: .2 });
+  const black = new THREE.MeshPhysicalMaterial({ color: 0x0c0c0b, roughness: .55, metalness: .28, clearcoat: .12 });
+  const nailMaterial = new THREE.MeshPhysicalMaterial({ color: 0xc99887, roughness: .38, clearcoat: .35, clearcoatRoughness: .28 });
   const body = new THREE.Group();
   const headRig = new THREE.Group();
   const leftArm = new THREE.Group();
@@ -1093,33 +1183,36 @@ function makeCharacter(characterId) {
     parent.add(part);
     return part;
   };
-  const chairBack = new THREE.Mesh(new THREE.BoxGeometry(1.45, 2.05, .22), chairMaterial);
+  const chairBack = new THREE.Mesh(makeBeveledBoxGeometry(1.45, 2.05, .22, .16), chairMaterial);
   chairBack.position.set(0, .2, .48);
-  const chairSeat = new THREE.Mesh(new THREE.BoxGeometry(1.55, .22, 1.45), chairMaterial);
+  const chairSeat = new THREE.Mesh(makeBeveledBoxGeometry(1.55, 1.45, .22, .18), chairMaterial);
+  chairSeat.rotation.x = Math.PI / 2;
   chairSeat.position.set(0, -.62, -.08);
-  mesh(new THREE.CylinderGeometry(.42, .65, 1.42, 10), clothing, body, [0, .42, 0]);
-  mesh(new THREE.BoxGeometry(.52, 1.12, .08), shirt, body, [0, .48, -.57]);
-  mesh(new THREE.BoxGeometry(.07, .92, .07), accentMaterial, body, [0, .53, -.64], [0,0,-.03]);
-  mesh(new THREE.BoxGeometry(.38, .82, .08), clothing, body, [-.23, .57, -.62], [0,0,-.2]);
-  mesh(new THREE.BoxGeometry(.38, .82, .08), clothing, body, [.23, .57, -.62], [0,0,.2]);
-  mesh(new THREE.BoxGeometry(1.05, .12, .16), black, body, [0, -.08, -.48]);
+  mesh(makeTorsoGeometry(), clothing, body, [0, .42, 0]);
+  mesh(makeBeveledBoxGeometry(.52, 1.12, .08, .09), shirt, body, [0, .48, -.57]);
+  mesh(new THREE.CapsuleGeometry(.035, .84, 5, 10), accentMaterial, body, [0, .53, -.64], [0,0,-.03]);
+  mesh(makeBeveledBoxGeometry(.38, .82, .08, .07), clothing, body, [-.23, .57, -.62], [0,0,-.2]);
+  mesh(makeBeveledBoxGeometry(.38, .82, .08, .07), clothing, body, [.23, .57, -.62], [0,0,.2]);
+  mesh(makeBeveledBoxGeometry(1.05, .12, .16, .04), black, body, [0, -.08, -.48]);
   for (const y of [.22, .5, .78]) mesh(new THREE.SphereGeometry(.045, 10, 8), accentMaterial, body, [0, y, -.68]);
-  mesh(new THREE.SphereGeometry(.19, 12, 8), clothing, body, [-.57, .86, -.02]);
-  mesh(new THREE.SphereGeometry(.19, 12, 8), clothing, body, [.57, .86, -.02]);
-  mesh(new THREE.CylinderGeometry(.18, .2, .28, 10), skin, headRig, [0, 1.25, -.05]);
-  const head = mesh(new THREE.SphereGeometry(.43, 20, 16), skin, headRig, [0, 1.68, -.08], [0,0,0], profile.head);
-  mesh(new THREE.ConeGeometry(.09, .25, 10), skin, headRig, [0, 1.66, -.49], [Math.PI / 2, 0, 0]);
-  mesh(new THREE.SphereGeometry(.31, 18, 12), skin, headRig, [0, 1.49, -.14], [0,0,0], [1.08,.56,.92]);
+  mesh(new THREE.SphereGeometry(.19, 24, 16), clothing, body, [-.57, .86, -.02]);
+  mesh(new THREE.SphereGeometry(.19, 24, 16), clothing, body, [.57, .86, -.02]);
+  mesh(new THREE.CapsuleGeometry(.17, .18, 8, 16), skin, headRig, [0, 1.25, -.05]);
+  const head = mesh(new THREE.SphereGeometry(.43, 36, 28), skin, headRig, [0, 1.68, -.08], [0,0,0], profile.head);
+  mesh(new THREE.CapsuleGeometry(.065, .12, 6, 14), skin, headRig, [0, 1.66, -.49], [Math.PI / 2, 0, 0]);
+  mesh(new THREE.SphereGeometry(.31, 28, 20), skin, headRig, [0, 1.49, -.14], [0,0,0], [1.08,.56,.92]);
   for (const side of [-1, 1]) {
-    mesh(new THREE.SphereGeometry(.13, 14, 10), skin, headRig, [side * .31, 1.6, -.37], [0,0,side * .08], [1.15,.62,.72]);
-    mesh(new THREE.SphereGeometry(.105, 14, 10), skin, headRig, [side * .45, 1.67, -.07], [0,0,side * .12], [.48,1,.7]);
+    mesh(new THREE.SphereGeometry(.13, 24, 16), skin, headRig, [side * .31, 1.6, -.37], [0,0,side * .08], [1.15,.62,.72]);
+    mesh(new THREE.SphereGeometry(.105, 22, 14), skin, headRig, [side * .45, 1.67, -.07], [0,0,side * .12], [.48,1,.7]);
+    mesh(new THREE.CapsuleGeometry(.018, .12, 4, 10), hairMaterial, headRig, [side * .15, 1.84, -.47], [0,0,side * -.12]);
   }
-  mesh(new THREE.BoxGeometry(.28, .035, .025), black, headRig, [0, 1.48, -.48], [.05,0,0]);
-  mesh(new THREE.BoxGeometry(.18, .025, .018), accentMaterial, headRig, [.03, 1.435, -.465], [0,0,-.06]);
+  mesh(new THREE.CapsuleGeometry(.018, .22, 4, 10), black, headRig, [0, 1.48, -.48], [0,0,Math.PI / 2 + .05]);
+  mesh(new THREE.CapsuleGeometry(.012, .13, 4, 10), accentMaterial, headRig, [.03, 1.435, -.465], [0,0,Math.PI / 2 - .06]);
+  for (const side of [-1, 1]) mesh(new THREE.SphereGeometry(.014, 10, 8), black, headRig, [side * .032, 1.64, -.553], [0,0,0], [1.35,.65,.55]);
   const eyeMaterial = new THREE.MeshStandardMaterial({ color: profile.accent, emissive: profile.accent, emissiveIntensity: 3 });
   for (const side of [-1, 1]) {
-    mesh(new THREE.SphereGeometry(.038, 8, 6), eyeMaterial, headRig, [side * .15, 1.72, -.47]);
-    mesh(new THREE.BoxGeometry(.19, .035, .035), hairMaterial, headRig, [side * .15, 1.84, -.46], [0,0,side * -.12]);
+    mesh(new THREE.SphereGeometry(.045, 16, 12), eyeMaterial, headRig, [side * .15, 1.72, -.47], [0,0,0], [1,.74,.55]);
+    mesh(new THREE.TorusGeometry(.068, .012, 6, 20, Math.PI), skin, headRig, [side * .15, 1.73, -.493], [0,0,Math.PI]);
   }
   for (let wrinkle = 0; wrinkle < 3; wrinkle += 1) {
     mesh(new THREE.TorusGeometry(.16 + wrinkle * .025, .008, 5, 18, Math.PI * .7), hairMaterial, headRig, [0, 1.88 + wrinkle * .045, -.4], [0,0,.42]);
@@ -1176,20 +1269,25 @@ function makeCharacter(characterId) {
 
   const setupArm = (side, armRig, handRig) => {
     armRig.position.set(side * .56, .84, -.02);
-    mesh(new THREE.CylinderGeometry(.15, .18, .76, 10), clothing, armRig, [0, -.3, -.18], [Math.PI/3.2, 0, side*.12]);
+    mesh(new THREE.CapsuleGeometry(.155, .48, 8, 18), clothing, armRig, [0, -.3, -.18], [Math.PI/3.2, 0, side*.12]);
+    mesh(new THREE.SphereGeometry(.17, 24, 16), clothing, armRig, [0, .03, -.03], [0,0,0], [1.08,.92,1]);
     handRig.position.set(side * .68, .05, -.92);
-    mesh(new THREE.CylinderGeometry(.12, .14, .62, 10), clothing, handRig, [0, .2, .18], [Math.PI/2.6,0,side*.12]);
-    mesh(new THREE.SphereGeometry(.17, 12, 9), skin, handRig, [0, -.05, -.05], [0,0,0], [1.05,.72,1.2]);
-    for (const finger of [-1, 0, 1]) {
-      mesh(new THREE.ConeGeometry(.026, .2, 8), eldritchMaterial, handRig, [finger * .065, -.12, -.15], [Math.PI / 2, 0, finger * .08]);
+    mesh(new THREE.CapsuleGeometry(.125, .36, 8, 16), clothing, handRig, [0, .2, .18], [Math.PI/2.6,0,side*.12]);
+    mesh(new THREE.CapsuleGeometry(.145, .12, 8, 18), skin, handRig, [0, -.05, -.05], [Math.PI / 2, 0, 0], [1.06, .82, 1.05]);
+    for (let finger = 0; finger < 4; finger += 1) {
+      const fingerX = (finger - 1.5) * .065;
+      mesh(new THREE.CapsuleGeometry(.025, .11, 5, 10), skin, handRig, [fingerX, -.09, -.18], [Math.PI / 2.2, 0, (finger - 1.5) * .035]);
+      mesh(new THREE.CapsuleGeometry(.022, .075, 5, 10), skin, handRig, [fingerX, -.13, -.285], [Math.PI / 1.65, 0, (finger - 1.5) * .045]);
+      mesh(new THREE.SphereGeometry(.021, 10, 7), nailMaterial, handRig, [fingerX, -.105, -.335], [0,0,0], [1,.42,1.35]);
     }
+    mesh(new THREE.CapsuleGeometry(.032, .13, 6, 12), skin, handRig, [side * .15, -.02, -.13], [Math.PI / 2, 0, side * -.68]);
     body.add(armRig, handRig);
   };
   setupArm(-1, leftArm, leftHand);
   setupArm(1, rightArm, rightHand);
   for (const side of [-1,1]) {
-    mesh(new THREE.CylinderGeometry(.2, .22, .92, 10), clothing, body, [side*.34, -.66, .25], [Math.PI/2.25,0,0]);
-    mesh(new THREE.BoxGeometry(.36, .26, .72), black, body, [side*.34, -1.05, -.25]);
+    mesh(new THREE.CapsuleGeometry(.21, .54, 8, 18), clothing, body, [side*.34, -.66, .25], [Math.PI/2.25,0,0]);
+    mesh(makeBeveledBoxGeometry(.36, .72, .26, .07), black, body, [side*.34, -1.05, -.25], [Math.PI / 2, 0, 0]);
   }
   seat.add(chairBack, chairSeat, body, headRig);
   const activeRing = new THREE.Mesh(new THREE.TorusGeometry(.94, .055, 10, 40), new THREE.MeshStandardMaterial({ color: profile.accent, emissive: profile.accent, emissiveIntensity: 2.8, transparent: true, opacity: .92 }));
@@ -1428,7 +1526,8 @@ for (let i = 0; i < 6; i += 1) {
   const angle = itemTrayAngle(i);
   const position = radialPoint(angle, ITEM_TRAY_RADIUS);
   const tray = new THREE.Group();
-  const base = new THREE.Mesh(new THREE.BoxGeometry(2.72, .1, 1), trayMaterial.clone());
+  const base = new THREE.Mesh(makeBeveledBoxGeometry(2.72, 1, .1, .1), trayMaterial.clone());
+  base.rotation.x = Math.PI / 2;
   base.receiveShadow = true;
   tray.add(base);
   for (const z of [-.48, .48]) {
@@ -1467,11 +1566,12 @@ let itemPulsePlayerId = null;
 
 function makeItemProp(type) {
   const prop = new THREE.Group();
-  const steel = new THREE.MeshStandardMaterial({ color: 0x77776f, roughness: .3, metalness: .75 });
-  const brassItem = new THREE.MeshStandardMaterial({ color: 0xb48a3b, roughness: .35, metalness: .55 });
-  const red = new THREE.MeshStandardMaterial({ color: 0x8b2117, roughness: .62 });
-  const paper = new THREE.MeshStandardMaterial({ color: 0xd0c8b5, roughness: .92 });
-  const glass = new THREE.MeshStandardMaterial({ color: 0x5d3317, roughness: .25, metalness: .15, transparent: true, opacity: .86 });
+  const steel = new THREE.MeshPhysicalMaterial({ color: 0x8b8e87, map: metalTexture, bumpMap: metalTexture, bumpScale: .018, roughness: .27, metalness: .82, clearcoat: .18 });
+  const brassItem = new THREE.MeshPhysicalMaterial({ color: 0xb48a3b, map: metalTexture, roughness: .3, metalness: .68, clearcoat: .2 });
+  const red = new THREE.MeshPhysicalMaterial({ color: 0x8b2117, roughness: .5, clearcoat: .2, clearcoatRoughness: .42 });
+  const paper = new THREE.MeshStandardMaterial({ color: 0xd0c8b5, map: characterFabricTexture, bumpMap: characterFabricTexture, bumpScale: .018, roughness: .88 });
+  const glass = new THREE.MeshPhysicalMaterial({ color: 0x6f3d1e, roughness: .12, metalness: .05, transparent: true, opacity: .72, transmission: .18, thickness: .18, clearcoat: .85 });
+  const itemBlack = new THREE.MeshPhysicalMaterial({ color: 0x101311, map: metalTexture, roughness: .34, metalness: .46, clearcoat: .28 });
   const add = (geometry, material, position = [0, 0, 0], rotation = [0, 0, 0]) => {
     const part = new THREE.Mesh(geometry, material);
     part.position.set(...position);
@@ -1481,36 +1581,54 @@ function makeItemProp(type) {
     return part;
   };
   if (type === "magnifier") {
-    add(new THREE.TorusGeometry(.28, .055, 10, 24), steel, [0, .18, 0], [Math.PI / 2, 0, 0]);
-    add(new THREE.CylinderGeometry(.05, .06, .5, 8), steel, [.35, .05, 0], [0, 0, -Math.PI / 4]);
+    add(new THREE.TorusGeometry(.28, .055, 14, 40), steel, [0, .18, 0], [Math.PI / 2, 0, 0]);
+    add(new THREE.CircleGeometry(.245, 36), new THREE.MeshPhysicalMaterial({ color: 0xa7c8c2, transparent: true, opacity: .26, transmission: .55, roughness: .04, metalness: 0, side: THREE.DoubleSide }), [0, .18, 0], [-Math.PI / 2, 0, 0]);
+    add(new THREE.CapsuleGeometry(.05, .38, 6, 12), steel, [.35, .05, 0], [0, 0, -Math.PI / 4]);
+    add(new THREE.TorusGeometry(.075, .018, 8, 20), brassItem, [.52, -.12, 0], [Math.PI / 2, 0, 0]);
   } else if (type === "beer") {
-    add(new THREE.CylinderGeometry(.16, .2, .72, 12), glass, [0, .36, 0]);
-    add(new THREE.CylinderGeometry(.09, .12, .28, 12), glass, [0, .85, 0]);
-    add(new THREE.CylinderGeometry(.1, .1, .04, 12), brassItem, [0, 1.01, 0]);
+    add(new THREE.CylinderGeometry(.16, .2, .72, 28), glass, [0, .36, 0]);
+    add(new THREE.CylinderGeometry(.09, .12, .28, 24), glass, [0, .85, 0]);
+    add(new THREE.CylinderGeometry(.17, .17, .28, 28, 1, true), paper, [0, .42, 0]);
+    add(new THREE.TorusGeometry(.17, .012, 6, 28), red, [0, .53, 0], [Math.PI / 2, 0, 0]);
+    add(new THREE.CylinderGeometry(.1, .1, .04, 20), brassItem, [0, 1.01, 0]);
   } else if (type === "cigarettes") {
-    add(new THREE.BoxGeometry(.52, .16, .72), paper, [0, .08, 0]);
-    for (const x of [-.16, 0, .16]) add(new THREE.CylinderGeometry(.035, .035, .6, 8), paper, [x, .18, 0], [Math.PI / 2, 0, 0]);
+    add(makeBeveledBoxGeometry(.52, .72, .16, .06), paper, [0, .08, 0], [Math.PI / 2, 0, 0]);
+    add(makeBeveledBoxGeometry(.4, .46, .02, .025), red, [0, .17, -.02], [Math.PI / 2, 0, 0]);
+    for (const x of [-.16, -.053, .053, .16]) {
+      add(new THREE.CylinderGeometry(.035, .035, .6, 12), paper, [x, .18, 0], [Math.PI / 2, 0, 0]);
+      add(new THREE.CylinderGeometry(.036, .036, .12, 12), brassItem, [x, .18, -.35], [Math.PI / 2, 0, 0]);
+    }
   } else if (type === "handcuffs") {
-    add(new THREE.TorusGeometry(.22, .045, 8, 20), steel, [-.25, .13, 0], [Math.PI / 2, 0, 0]);
-    add(new THREE.TorusGeometry(.22, .045, 8, 20), steel, [.25, .13, 0], [Math.PI / 2, 0, 0]);
-    add(new THREE.BoxGeometry(.25, .05, .05), steel, [0, .13, 0]);
+    add(new THREE.TorusGeometry(.22, .04, 12, 36), steel, [-.28, .13, 0], [Math.PI / 2, 0, 0]);
+    add(new THREE.TorusGeometry(.22, .04, 12, 36), steel, [.28, .13, 0], [Math.PI / 2, 0, 0]);
+    for (const x of [-.12, 0, .12]) add(new THREE.TorusGeometry(.065, .018, 8, 18), steel, [x, .13, 0], [Math.PI / 2, 0, 0]);
+    add(new THREE.CylinderGeometry(.025, .025, .13, 12), brassItem, [-.28, .17, -.19], [Math.PI / 2, 0, 0]);
+    add(new THREE.CylinderGeometry(.025, .025, .13, 12), brassItem, [.28, .17, -.19], [Math.PI / 2, 0, 0]);
   } else if (type === "handsaw") {
-    add(new THREE.BoxGeometry(.95, .06, .28), steel, [.08, .15, 0], [0, -.12, 0]);
-    add(new THREE.BoxGeometry(.34, .16, .4), new THREE.MeshStandardMaterial({ color: 0x3f2014, roughness: .7 }), [-.54, .15, 0]);
+    add(makeBeveledBoxGeometry(.95, .28, .045, .025), steel, [.08, .15, 0], [Math.PI / 2, -.12, 0]);
+    for (let tooth = 0; tooth < 9; tooth += 1) add(new THREE.ConeGeometry(.035, .12, 3), steel, [-.28 + tooth * .1, .08, -.16], [Math.PI, 0, 0]);
+    add(makeBeveledBoxGeometry(.34, .4, .16, .09), new THREE.MeshPhysicalMaterial({ color: 0x4f2818, map: woodTexture, bumpMap: woodTexture, bumpScale: .03, roughness: .52, clearcoat: .25 }), [-.54, .15, 0], [Math.PI / 2, 0, 0]);
+    add(new THREE.CylinderGeometry(.035, .035, .18, 12), brassItem, [-.54, .23, 0], [Math.PI / 2, 0, 0]);
   } else if (type === "phone") {
-    add(new THREE.BoxGeometry(.52, .12, .86), new THREE.MeshStandardMaterial({ color: 0x171a17, roughness: .45, metalness: .3 }), [0, .08, 0]);
-    add(new THREE.BoxGeometry(.38, .02, .56), new THREE.MeshStandardMaterial({ color: 0x6d8b72, emissive: 0x1d3822, emissiveIntensity: 1.5 }), [0, .15, -.02]);
+    add(makeBeveledBoxGeometry(.52, .86, .12, .1), itemBlack, [0, .08, 0], [Math.PI / 2, 0, 0]);
+    add(makeBeveledBoxGeometry(.38, .56, .018, .045), new THREE.MeshPhysicalMaterial({ color: 0x6d8b72, emissive: 0x1d3822, emissiveIntensity: 1.5, roughness: .16, clearcoat: .8 }), [0, .15, -.02], [Math.PI / 2, 0, 0]);
+    add(new THREE.TorusGeometry(.055, .012, 8, 20), steel, [0, .16, .36], [Math.PI / 2, 0, 0]);
+    add(new THREE.SphereGeometry(.032, 12, 8), glass, [-.16, .16, -.34]);
   } else if (type === "inverter") {
-    add(new THREE.CylinderGeometry(.13, .13, .72, 10), red, [0, .14, 0], [0, 0, Math.PI / 2]);
-    add(new THREE.CylinderGeometry(.14, .14, .22, 10), brassItem, [.43, .14, 0], [0, 0, Math.PI / 2]);
-    add(new THREE.TorusGeometry(.25, .035, 8, 18), steel, [0, .14, 0], [Math.PI / 2, 0, 0]);
+    add(new THREE.CylinderGeometry(.13, .13, .72, 20), red, [0, .14, 0], [0, 0, Math.PI / 2]);
+    add(new THREE.CylinderGeometry(.14, .14, .22, 20), brassItem, [.43, .14, 0], [0, 0, Math.PI / 2]);
+    add(new THREE.TorusGeometry(.25, .035, 10, 30), steel, [0, .14, 0], [Math.PI / 2, 0, 0]);
+    for (const x of [-.22, -.08, .08, .22]) add(new THREE.TorusGeometry(.132, .01, 6, 20), itemBlack, [x, .14, 0], [0, Math.PI / 2, 0]);
   } else if (type === "adrenaline") {
-    add(new THREE.CylinderGeometry(.07, .07, .78, 10), new THREE.MeshStandardMaterial({ color: 0xa9d9ba, transparent: true, opacity: .72 }), [0, .15, 0], [0, 0, Math.PI / 2]);
-    add(new THREE.CylinderGeometry(.09, .09, .08, 10), steel, [-.44, .15, 0], [0, 0, Math.PI / 2]);
-    add(new THREE.CylinderGeometry(.018, .018, .4, 6), steel, [.58, .15, 0], [0, 0, Math.PI / 2]);
+    add(new THREE.CylinderGeometry(.07, .07, .78, 18), new THREE.MeshPhysicalMaterial({ color: 0xa9d9ba, transparent: true, opacity: .55, transmission: .35, roughness: .08 }), [0, .15, 0], [0, 0, Math.PI / 2]);
+    add(new THREE.CylinderGeometry(.055, .055, .48, 16), red, [-.05, .15, 0], [0, 0, Math.PI / 2]);
+    add(new THREE.CylinderGeometry(.09, .09, .08, 16), steel, [-.44, .15, 0], [0, 0, Math.PI / 2]);
+    add(new THREE.CylinderGeometry(.018, .018, .4, 10), steel, [.58, .15, 0], [0, 0, Math.PI / 2]);
+    add(new THREE.CylinderGeometry(.14, .14, .025, 18), red, [-.55, .15, 0], [0, 0, Math.PI / 2]);
   } else {
-    add(new THREE.CylinderGeometry(.23, .25, .48, 12), paper, [0, .25, 0]);
-    add(new THREE.CylinderGeometry(.18, .2, .13, 12), red, [0, .56, 0]);
+    add(new THREE.CylinderGeometry(.23, .25, .48, 24), paper, [0, .25, 0]);
+    add(new THREE.CylinderGeometry(.18, .2, .13, 24), red, [0, .56, 0]);
+    add(new THREE.TorusGeometry(.235, .018, 8, 28), brassItem, [0, .14, 0], [Math.PI / 2, 0, 0]);
     add(new THREE.BoxGeometry(.18, .04, .04), red, [0, .26, -.24]);
     add(new THREE.BoxGeometry(.04, .18, .04), red, [0, .26, -.24]);
   }
