@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { resolveAimTarget } from "../shared/aiming.js";
 import {
   CHARACTER_RULES,
   cleanCharacter,
@@ -27,6 +28,13 @@ test("haznede hem dolu hem boş fişek bulunur", () => {
 test("karakter seçimi yalnızca tanımlı kimlikleri kabul eder", () => {
   assert.equal(cleanCharacter(" Scholar "), "scholar");
   assert.throws(() => cleanCharacter("dealer"), /Geçerli bir karakter/);
+});
+
+test("namlu kilidi seçilmiş ve ateşlenmiş hedefi hover önizlemesinden üstün tutar", () => {
+  assert.equal(resolveAimTarget({ shotTargetId: null, shotVisualUntil: 0, selectedTargetId: null, hoveredPlayerId: "p2" }, 1000), "p2");
+  assert.equal(resolveAimTarget({ shotTargetId: null, shotVisualUntil: 0, selectedTargetId: "p1", hoveredPlayerId: "p2" }, 1000), "p1");
+  assert.equal(resolveAimTarget({ shotTargetId: "p3", shotVisualUntil: 2000, selectedTargetId: "p1", hoveredPlayerId: "p2" }, 1000), "p3");
+  assert.equal(resolveAimTarget({ shotTargetId: "p3", shotVisualUntil: 2000, selectedTargetId: "p1", hoveredPlayerId: "p2" }, 2000), "p1");
 });
 
 test("oda en fazla altı oyuncu alır ve oyunu yalnızca ev sahibi başlatır", () => {

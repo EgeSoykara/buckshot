@@ -19,13 +19,13 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=DM+Mono:wght@400;500&family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=20260813-finished-v4" />
+    <link rel="stylesheet" href="/styles.css?v=20260813-aiming-v6" />
   </head>
   <body>
     <canvas id="scene" aria-hidden="true"></canvas>
     <div class="grain" aria-hidden="true"></div>
     <div class="scanlines" aria-hidden="true"></div>
-    <div id="aim-reticle" class="aim-reticle hidden" aria-hidden="true"><i></i><span>HEDEF KİLİTLİ</span></div>
+    <div id="aim-reticle" class="aim-reticle hidden" aria-hidden="true"><i></i><span id="aim-reticle-label">HEDEF KİLİTLİ</span></div>
 
     <header class="topbar">
       <a class="brand" href="/" aria-label="Last Chamber ana sayfa">
@@ -134,6 +134,10 @@
               <span id="passive-name">KARAKTER PASİFİ</span>
               <b id="passive-description">Kimliğinin masadaki etkisi burada görünür.</b>
             </div>
+            <div id="target-confirm" class="target-confirm">
+              <div><span>NAMLU YÖNÜ</span><b id="selected-target-name">ÖNCE HEDEF SEÇ</b></div>
+              <button id="fire-button" class="fire-button" type="button" disabled><span id="fire-button-label">TETİK KİLİTLİ</span><b>→</b></button>
+            </div>
             <div id="target-list" class="target-list"></div>
             <div id="item-list" class="item-list"></div>
           </div>
@@ -155,6 +159,11 @@
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <div id="flash" class="flash" aria-hidden="true"></div>
+    <div id="shot-result" class="shot-result hidden" role="status" aria-live="assertive">
+      <span id="shot-route">— → —</span>
+      <strong id="shot-outcome">—</strong>
+      <small id="shot-detail">—</small>
+    </div>
 
     <dialog id="rules-dialog" class="rules-dialog">
       <button id="rules-close" class="rules-close" aria-label="Kuralları kapat">×</button>
@@ -171,6 +180,6 @@
     </dialog>
 
     <script src="/socket.io/socket.io.js"></script>
-    <script type="module" src="/game.js?v=20260813-finished-v11"></script>
+    <script type="module" src="/game.js?v=20260813-aiming-v14"></script>
   </body>
 </html>

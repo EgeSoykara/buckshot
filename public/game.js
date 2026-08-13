@@ -1,5 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
 import { CHARACTER_RULES } from "/shared/characters.js?v=20260813-characters-v1";
+import { resolveAimTarget } from "/shared/aiming.js?v=20260813-aiming-v1";
 
 const $ = (selector) => document.querySelector(selector);
 const socket = window.io({ transports: ["websocket", "polling"] });
@@ -12,14 +13,17 @@ const ui = {
   ammo: $("#ammo-readout"), live: $("#live-count"), blank: $("#blank-count"), round: $("#round-label"),
   turnKicker: $("#turn-kicker"), turnTitle: $("#turn-title"), lastAction: $("#last-action"),
   passivePanel: $("#passive-panel"), passiveName: $("#passive-name"), passiveDescription: $("#passive-description"),
+  targetConfirm: $("#target-confirm"), selectedTargetName: $("#selected-target-name"), fire: $("#fire-button"), fireLabel: $("#fire-button-label"),
   targetList: $("#target-list"), itemList: $("#item-list"), timerBar: $("#timer-bar"), timerText: $("#timer-text"),
   winner: $("#winner-panel"), winnerName: $("#winner-name"), restart: $("#restart-button"), restartHint: $("#restart-hint"),
-  toast: $("#toast"), secret: $("#secret-toast"), secretMessage: $("#secret-message"), flash: $("#flash"), sound: $("#sound-toggle")
+  toast: $("#toast"), secret: $("#secret-toast"), secretMessage: $("#secret-message"), flash: $("#flash"), sound: $("#sound-toggle"),
+  shotResult: $("#shot-result"), shotRoute: $("#shot-route"), shotOutcome: $("#shot-outcome"), shotDetail: $("#shot-detail")
 };
 ui.rules = $("#rules-dialog");
 ui.rulesButton = $("#rules-button");
 ui.rulesClose = $("#rules-close");
 ui.reticle = $("#aim-reticle");
+ui.reticleLabel = $("#aim-reticle-label");
 ui.turnAnnouncer = $("#turn-announcer");
 ui.turnAnnouncerName = $("#turn-announcer-name");
 ui.characterList = $("#character-list");
@@ -47,11 +51,14 @@ let state = null;
 let turnEndAt = 0;
 let toastTimer;
 let secretTimer;
+let shotResultTimer;
 let soundEnabled = true;
 let audioContext;
 let hoveredPlayerId = null;
 let selectedTargetId = null;
 let previousCurrentPlayerId = null;
+let shotTargetId = null;
+let shotVisualUntil = 0;
 
 const characterIds = new Set(Object.keys(CHARACTER_RULES));
 let selectedCharacter = localStorage.getItem("last-chamber-character");
@@ -142,6 +149,7 @@ ui.code.addEventListener("keydown", (event) => { if (event.key === "Enter") join
 ui.code.addEventListener("input", () => { ui.code.value = ui.code.value.toUpperCase().replace(/[^A-Z2-9]/g, ""); });
 ui.start.addEventListener("click", () => socket.emit("game:start"));
 ui.restart.addEventListener("click", () => socket.emit("game:start"));
+ui.fire.addEventListener("click", fireSelectedTarget);
 
 async function shareRoom() {
   if (!state) return;
@@ -227,7 +235,7 @@ function renderState() {
   ui.playerList.innerHTML = state.players.map((player, index) => {
     const hearts = Array.from({ length: player.maxHealth }, (_, heart) => `<i class="heart ${heart >= player.health ? "empty" : ""}"></i>`).join("");
     const flags = [player.id === state.hostId ? "ODA SAHİBİ" : "", !player.connected ? "KOPTU" : "", player.skipTurns ? "KELEPÇELİ" : "", player.sawed ? "KESİK NAMLU" : "", player.items.length ? `${player.items.length} EKİPMAN` : ""].filter(Boolean).join(" · ");
-    return `<div class="player-card ${player.id === state.currentPlayerId ? "current" : ""} ${!player.alive ? "dead" : ""} ${!player.connected ? "disconnected" : ""}">
+    return `<div class="player-card ${player.id === state.currentPlayerId ? "current" : ""} ${!player.alive ? "dead" : ""} ${!player.connected ? "disconnected" : ""}" data-player-id="${player.id}">
       <span class="player-index">${String(index + 1).padStart(2, "0")}</span>
       <div class="player-meta"><b>${escapeHtml(player.name)}${player.id === state.viewerId ? " · SEN" : ""}</b><span><strong>${escapeHtml(player.characterName)}</strong> · ${flags || (player.alive ? "MASADA" : "ELENDİ")}</span></div>
       <div class="hearts">${hearts}</div>
@@ -265,21 +273,16 @@ function renderState() {
     }
     previousCurrentPlayerId = state.currentPlayerId;
     ui.targetList.innerHTML = state.players.filter((player) => player.alive).map((player) =>
-      `<button class="target-button ${player.id === state.viewerId ? "self" : ""} ${player.id === selectedTargetId ? "selected" : ""}" data-target="${player.id}" ${myTurn ? "" : "disabled"}>${player.id === state.viewerId ? "KENDİNE" : escapeHtml(player.name)}</button>`
+      `<button class="target-button ${player.id === state.viewerId ? "self" : ""} ${player.id === selectedTargetId ? "selected" : ""}" data-target="${player.id}" aria-pressed="${player.id === selectedTargetId}" aria-label="Hedef seç: ${player.id === state.viewerId ? "kendin" : escapeHtml(player.name)}" ${myTurn ? "" : "disabled"}>${player.id === state.viewerId ? "KENDİNE" : escapeHtml(player.name)}</button>`
     ).join("");
     ui.targetList.querySelectorAll("button").forEach((button) => {
       button.addEventListener("pointerenter", () => setHoveredTarget(button.dataset.target));
       button.addEventListener("pointerleave", () => setHoveredTarget(null));
       button.addEventListener("focus", () => setHoveredTarget(button.dataset.target));
       button.addEventListener("blur", () => setHoveredTarget(null));
-      button.addEventListener("click", () => {
-        selectedTargetId = button.dataset.target;
-        setHoveredTarget(null);
-        ui.targetList.querySelectorAll("button").forEach((target) => target.classList.toggle("selected", target.dataset.target === selectedTargetId));
-        socket.emit("game:shoot", { targetId: button.dataset.target });
-        disableActions();
-      });
+      button.addEventListener("click", () => selectTarget(button.dataset.target));
     });
+    updateTargetControls();
     ui.itemList.innerHTML = (me?.items ?? []).map((item) => {
       const info = itemInfo[item] ?? { name: item, mark: "·", description: item };
       const usable = canUseItem(item, me);
@@ -311,6 +314,7 @@ function announceTurn(name) {
 function disableActions() {
   ui.targetList.querySelectorAll("button").forEach((button) => { button.disabled = true; });
   ui.itemList.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+  ui.fire.disabled = true;
 }
 
 function canUseItem(item, me = state?.players.find((player) => player.id === state?.viewerId)) {
@@ -324,6 +328,71 @@ function restoreActions() {
   ui.itemList.querySelectorAll("button").forEach((button) => {
     button.disabled = !canUseItem(button.dataset.item);
   });
+  updateTargetControls();
+}
+
+function targetName(playerId) {
+  const player = state?.players.find((candidate) => candidate.id === playerId);
+  if (!player) return "—";
+  return player.id === state.viewerId ? `${player.name} · KENDİN` : player.name;
+}
+
+function effectiveAimTargetId() {
+  return resolveAimTarget({ shotTargetId, shotVisualUntil, selectedTargetId, hoveredPlayerId }, performance.now());
+}
+
+function updateAimIndicators(playerId = effectiveAimTargetId()) {
+  const label = targetName(playerId).toLocaleUpperCase("tr-TR");
+  ui.reticle.classList.toggle("hidden", !playerId);
+  ui.reticleLabel.textContent = playerId ? `HEDEF: ${label}` : "HEDEF KİLİTLİ";
+  ui.playerList.querySelectorAll(".player-card").forEach((card) => card.classList.toggle("aimed", card.dataset.playerId === playerId));
+  seats.forEach((seat, index) => {
+    const id = state?.players[index]?.id;
+    seat.userData.activeRing.visible = id === state?.currentPlayerId;
+    seat.userData.targetRing.visible = id === playerId;
+  });
+}
+
+function updateTargetControls() {
+  if (!state || state.phase !== "playing") return;
+  const myTurn = state.currentPlayerId === state.viewerId;
+  const target = state.players.find((player) => player.id === selectedTargetId && player.alive);
+  ui.targetConfirm.classList.toggle("locked", Boolean(myTurn && target));
+  ui.selectedTargetName.textContent = myTurn
+    ? (target ? targetName(target.id).toLocaleUpperCase("tr-TR") : "ÖNCE HEDEF SEÇ")
+    : `${state.players.find((player) => player.id === state.currentPlayerId)?.name ?? "—"} ATEŞ EDECEK`;
+  ui.fire.disabled = !myTurn || !target;
+  ui.fireLabel.textContent = target ? `ATEŞ ET: ${target.id === state.viewerId ? "KENDİNE" : target.name.toLocaleUpperCase("tr-TR")}` : "TETİK KİLİTLİ";
+  ui.targetList.querySelectorAll("button").forEach((button) => {
+    const selected = button.dataset.target === selectedTargetId;
+    button.classList.toggle("selected", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+  updateAimIndicators();
+}
+
+function selectTarget(playerId) {
+  if (!state || state.phase !== "playing" || state.currentPlayerId !== state.viewerId) return;
+  const target = state.players.find((player) => player.id === playerId && player.alive);
+  if (!target) return;
+  selectedTargetId = target.id;
+  shotVisualUntil = 0;
+  setHoveredTarget(null);
+  updateTargetControls();
+  playTone(235, .07, "triangle", .04);
+  requestAnimationFrame(() => ui.fire.focus({ preventScroll: true }));
+}
+
+function fireSelectedTarget() {
+  if (!state || state.phase !== "playing" || state.currentPlayerId !== state.viewerId) return;
+  const target = state.players.find((player) => player.id === selectedTargetId && player.alive);
+  if (!target) return showToast("Önce namlunun çevrileceği hedefi seç.", true);
+  shotTargetId = target.id;
+  shotVisualUntil = performance.now() + 2400;
+  pendingGunPlayerId = target.id;
+  aimGunAt(target.id);
+  socket.emit("game:shoot", { targetId: target.id });
+  disableActions();
 }
 
 function escapeHtml(value) {
@@ -933,12 +1002,17 @@ function makeCharacter(characterId) {
   activeRing.rotation.x = Math.PI / 2;
   activeRing.position.y = -.73;
   activeRing.visible = false;
+  const targetRing = new THREE.Mesh(new THREE.TorusGeometry(1.13, .045, 10, 48), new THREE.MeshStandardMaterial({ color: 0xff5c3b, emissive: 0xff2d12, emissiveIntensity: 3.2, transparent: true, opacity: .95 }));
+  targetRing.rotation.x = Math.PI / 2;
+  targetRing.position.y = -.71;
+  targetRing.visible = false;
   const seatGlow = new THREE.PointLight(profile.accent, 42, 4.8, 1.8);
   seatGlow.position.set(0, 1.65, -1.28);
   const faceLight = new THREE.PointLight(0xd8c7ac, 24, 3.2, 2);
   faceLight.position.set(0, 2.05, -1.05);
-  seat.add(activeRing, seatGlow, faceLight);
+  seat.add(activeRing, targetRing, seatGlow, faceLight);
   seat.userData.activeRing = activeRing;
+  seat.userData.targetRing = targetRing;
   seat.userData.body = body;
   seat.userData.head = headRig;
   seat.userData.leftArm = leftArm;
@@ -947,6 +1021,7 @@ function makeCharacter(characterId) {
   seat.userData.rightHand = rightHand;
   seat.userData.hit = 0;
   seat.userData.action = 0;
+  seat.userData.blankPulse = 0;
   seat.userData.baseAngle = 0;
   seat.userData.label = null;
   seat.userData.labelName = "";
@@ -1142,7 +1217,8 @@ function syncSeats(players) {
       const player = players[index];
       seat.scale.setScalar(player.alive ? 1 : .88);
       seat.rotation.z = player.alive ? 0 : -.18;
-      seat.userData.activeRing.visible = player.id === state.currentPlayerId || player.id === hoveredPlayerId;
+      seat.userData.activeRing.visible = player.id === state.currentPlayerId;
+      seat.userData.targetRing.visible = player.id === effectiveAimTargetId();
       if (seat.userData.labelName !== player.name) {
         if (seat.userData.label) seat.remove(seat.userData.label);
         seat.userData.label = makeNameSprite(player.name, player.id === state.viewerId ? "#d7ff3f" : "#8b877d");
@@ -1160,12 +1236,8 @@ function syncSeats(players) {
 
 function setHoveredTarget(playerId) {
   hoveredPlayerId = playerId;
-  const effectiveTargetId = hoveredPlayerId ?? selectedTargetId;
-  ui.reticle.classList.toggle("hidden", !effectiveTargetId);
-  seats.forEach((seat, index) => {
-    const id = state?.players[index]?.id;
-    seat.userData.activeRing.visible = id === state?.currentPlayerId || id === effectiveTargetId;
-  });
+  const effectiveTargetId = effectiveAimTargetId();
+  updateAimIndicators(effectiveTargetId);
   pendingGunPlayerId = effectiveTargetId ?? state?.currentPlayerId ?? null;
   if (pendingGunPlayerId) aimGunAt(pendingGunPlayerId);
 }
@@ -1211,26 +1283,65 @@ function playTone(frequency, duration, type = "square", gain = .07) {
   oscillator.stop(audioContext.currentTime + duration);
 }
 
+function showShotResult(result) {
+  const actor = state?.players.find((player) => player.id === result.actorId);
+  const target = state?.players.find((player) => player.id === result.targetId);
+  const actorName = actor?.name ?? "OYUNCU";
+  const targetLabel = result.selfShot ? `${target?.name ?? "OYUNCU"} · KENDİSİ` : target?.name ?? "HEDEF";
+  const live = result.shell === "live";
+  ui.shotRoute.textContent = `${actorName} → ${targetLabel}`;
+  ui.shotOutcome.textContent = live ? "DOLU!" : "BOŞ · KLİK";
+  ui.shotDetail.textContent = live
+    ? (result.damage > 0 ? `${target?.name ?? "Hedef"} ${result.damage} can kaybetti` : "Atış perde tarafından durduruldu")
+    : (result.selfShot ? "Hasar yok · sıra aynı oyuncuda" : "Hasar yok · sıra ilerliyor");
+  clearTimeout(shotResultTimer);
+  ui.shotResult.classList.remove("hidden", "live", "blank");
+  void ui.shotResult.offsetWidth;
+  ui.shotResult.classList.add(live ? "live" : "blank");
+  shotResultTimer = setTimeout(() => ui.shotResult.classList.add("hidden"), live ? 1850 : 2200);
+}
+
 function animateShot(result) {
+  const live = result.shell === "live";
+  const now = performance.now();
+  shotTargetId = result.targetId;
+  shotVisualUntil = now + (live ? 1900 : 2300);
+  hoveredPlayerId = null;
+  selectedTargetId = null;
   aimGunAt(result.targetId);
-  shotLockUntil = performance.now() + 700;
-  gunRecoil = 1;
-  pumpAction = 1;
-  gun.rotation.z -= .2;
-  setTimeout(() => { gun.rotation.z = .04; }, 170);
+  pendingGunPlayerId = result.targetId;
+  shotLockUntil = shotVisualUntil;
+  gunRecoil = live ? 1 : .13;
+  pumpAction = live ? 1 : 0;
+  gun.rotation.z += live ? -.2 : .105;
+  setTimeout(() => { gun.rotation.z = .04; }, live ? 170 : 360);
   const actorIndex = state?.players.findIndex((player) => player.id === result.actorId) ?? -1;
   const targetIndex = state?.players.findIndex((player) => player.id === result.targetId) ?? -1;
   if (seats[actorIndex]) seats[actorIndex].userData.action = 1;
-  if (seats[targetIndex]) seats[targetIndex].userData.hit = result.shell === "live" ? 1 : .35;
-  if (result.shell === "live") {
-    ui.flash.classList.remove("fire");
+  if (seats[targetIndex]) {
+    seats[targetIndex].userData.hit = live ? 1 : 0;
+    seats[targetIndex].userData.blankPulse = live ? 0 : 1;
+  }
+  ui.flash.classList.remove("fire", "blank");
+  void ui.flash.offsetWidth;
+  updateAimIndicators(result.targetId);
+  updateTargetControls();
+  showShotResult(result);
+  if (live) {
     void ui.flash.offsetWidth;
     ui.flash.classList.add("fire");
     muzzleEnergy = 1;
     cameraShake = 1;
     playTone(85, .42, "sawtooth", .15);
   } else {
-    playTone(160, .08, "square", .045);
+    ui.flash.classList.add("blank");
+    cameraShake = .16;
+    playTone(225, .045, "square", .07);
+    setTimeout(() => playTone(135, .065, "square", .055), 105);
+    setTimeout(() => {
+      pumpAction = 1;
+      playTone(92, .09, "triangle", .045);
+    }, 310);
   }
 }
 
@@ -1245,6 +1356,11 @@ function animateItem({ actorId, item }) {
 const clock = new THREE.Clock();
 function frame() {
   const time = clock.getElapsedTime();
+  if (shotTargetId && performance.now() >= shotVisualUntil) {
+    shotTargetId = null;
+    pendingGunPlayerId = selectedTargetId ?? state?.currentPlayerId ?? null;
+    updateAimIndicators();
+  }
   cameraShake *= .84;
   const cinematicCamera = desiredCamera.clone();
   cinematicCamera.x += Math.sin(time * .12) * .28 + (Math.random() - .5) * cameraShake * .18;
@@ -1271,6 +1387,7 @@ function frame() {
     const active = player?.id === state?.currentPlayerId;
     seat.userData.hit *= .88;
     seat.userData.action *= .9;
+    seat.userData.blankPulse *= .9;
     const breath = Math.sin(time * 1.15 + index);
     seat.position.y = -1.08 + breath * (active ? .035 : .012);
     seat.rotation.z = (player?.alive ? 0 : -.2) + seat.userData.hit * (index % 2 ? .16 : -.16);
@@ -1283,6 +1400,12 @@ function frame() {
     seat.userData.leftHand.rotation.x = seat.userData.action * -.28;
     seat.userData.rightHand.rotation.x = seat.userData.action * -.28;
     if (seat.userData.activeRing) seat.userData.activeRing.rotation.z = time * .7;
+    if (seat.userData.targetRing) {
+      const targetPulse = 1 + Math.sin(time * 8.5) * .045 + seat.userData.blankPulse * .18;
+      seat.userData.targetRing.rotation.z = -time * 1.35;
+      seat.userData.targetRing.scale.setScalar(targetPulse);
+      seat.userData.targetRing.material.emissiveIntensity = 3.2 + seat.userData.blankPulse * 5;
+    }
   });
   const itemPulseActive = performance.now() < itemPulseUntil;
   itemTrays.forEach((tray, trayIndex) => {
