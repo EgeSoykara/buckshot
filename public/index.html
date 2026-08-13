@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0a0908" />
+    <meta name="description" content="Arkadaşlarınla oynayabileceğin 6 kişilik, gerçek zamanlı 3B masa oyunu." />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Last Chamber — Masadan sağ çık" />
+    <meta property="og:description" content="2–6 oyunculu, gerçek zamanlı 3B gerilim oyunu. Odayı kur, bağlantıyı paylaş, son kalan ol." />
+    <meta property="og:image" content="%ORIGIN%/og.png" />
+    <meta property="og:image:width" content="1731" />
+    <meta property="og:image:height" content="909" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Last Chamber — Masadan sağ çık" />
+    <meta name="twitter:description" content="2–6 oyunculu, gerçek zamanlı 3B gerilim oyunu." />
+    <meta name="twitter:image" content="%ORIGIN%/og.png" />
+    <title>Last Chamber — Masadan sağ çık</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=DM+Mono:wght@400;500&family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <canvas id="scene" aria-hidden="true"></canvas>
+    <div class="grain" aria-hidden="true"></div>
+
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Last Chamber ana sayfa">
+        <span class="brand-mark">LC</span>
+        <span>LAST<br />CHAMBER</span>
+      </a>
+      <div class="top-actions">
+        <div id="connection" class="connection"><i></i><span>BAĞLANIYOR</span></div>
+        <button id="sound-toggle" class="icon-button" aria-label="Sesi aç veya kapat" title="Ses">◉</button>
+      </div>
+    </header>
+
+    <main>
+      <section id="home-screen" class="screen home-screen">
+        <div class="hero-copy">
+          <div class="eyebrow"><span></span> 2–6 OYUNCU · GERÇEK ZAMANLI</div>
+          <h1>MASADAN<br /><em>SAĞ ÇIK.</em></h1>
+          <p>Haznede dolu da var, boş da. Sıran geldiğinde hedefini seç, ekipmanını kullan ve soğukkanlılığını kaybetme.</p>
+          <div class="rule-strip">
+            <div><b>01</b><span>Odayı kur</span></div>
+            <div><b>02</b><span>Linki paylaş</span></div>
+            <div><b>03</b><span>Son kalan ol</span></div>
+          </div>
+        </div>
+
+        <div class="join-card panel">
+          <div class="panel-number">6 MAX</div>
+          <h2>MASAYA OTUR</h2>
+          <p>Kurulum yok. İsim yazman yeterli.</p>
+          <label for="player-name">OYUNCU ADI</label>
+          <input id="player-name" maxlength="18" autocomplete="nickname" placeholder="Örn. Ege" />
+          <div class="divider"><span>ODA</span></div>
+          <label for="room-code">DAVET KODU</label>
+          <div class="code-entry">
+            <input id="room-code" maxlength="5" autocomplete="off" placeholder="ABCDE" />
+            <button id="join-button" class="button secondary">KATIL</button>
+          </div>
+          <button id="create-button" class="button primary"><span>YENİ ODA KUR</span><b>→</b></button>
+          <p class="fine-print">Oyuna girerek 13 yaşından büyük olduğunu onaylarsın.</p>
+        </div>
+      </section>
+
+      <section id="room-screen" class="screen room-screen hidden">
+        <div class="room-header">
+          <div>
+            <span class="micro">ÖZEL ODA</span>
+            <button id="copy-code" class="room-code" title="Davet bağlantısını kopyala"><span id="room-code-label">—</span><i>BAĞLANTIYI KOPYALA</i></button>
+          </div>
+          <div id="ammo-readout" class="ammo-readout hidden">
+            <span><i class="live-dot"></i><b id="live-count">0</b> DOLU</span>
+            <span><i class="blank-dot"></i><b id="blank-count">0</b> BOŞ</span>
+            <small id="round-label">HAZNE 1</small>
+          </div>
+        </div>
+
+        <aside class="players-panel">
+          <div class="section-label"><span>MASADAKİLER</span><b id="player-count">0/6</b></div>
+          <div id="player-list" class="player-list"></div>
+        </aside>
+
+        <div id="lobby-panel" class="lobby-panel panel">
+          <span class="status-stamp">ODA HAZIR</span>
+          <h2>MASA<br />KURULUYOR</h2>
+          <p id="lobby-message">Arkadaşlarına davet bağlantısını gönder. En az 2 oyuncu gerekli.</p>
+          <button id="share-button" class="button secondary">DAVET BAĞLANTISINI KOPYALA</button>
+          <button id="start-button" class="button primary"><span>OYUNU BAŞLAT</span><b>→</b></button>
+          <div id="host-hint" class="host-hint">Oda sahibinin başlatması bekleniyor.</div>
+        </div>
+
+        <section id="game-hud" class="game-hud hidden">
+          <div class="turn-card">
+            <div class="turn-topline">
+              <span id="turn-kicker">SIRA SENDE</span>
+              <div class="timer"><i id="timer-bar"></i><b id="timer-text">30</b></div>
+            </div>
+            <h2 id="turn-title">HEDEFİNİ SEÇ</h2>
+            <p id="last-action">İlk hazne yüklendi.</p>
+            <div id="target-list" class="target-list"></div>
+            <div id="item-list" class="item-list"></div>
+          </div>
+        </section>
+
+        <div id="winner-panel" class="winner-panel panel hidden">
+          <span class="status-stamp">SON KALAN</span>
+          <h2 id="winner-name">—</h2>
+          <p>Hazne sustu. Bu masa şimdilik kapandı.</p>
+          <button id="restart-button" class="button primary"><span>YENİDEN OYNA</span><b>↻</b></button>
+          <div id="restart-hint" class="host-hint">Oda sahibinin yeniden başlatması bekleniyor.</div>
+        </div>
+
+        <div id="secret-toast" class="secret-toast hidden"><span>GİZLİ BİLGİ</span><b id="secret-message"></b></div>
+      </section>
+    </main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <div id="flash" class="flash" aria-hidden="true"></div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script type="module" src="/game.js"></script>
+  </body>
+</html>

@@ -1,0 +1,24 @@
+{
+  "name": "last-chamber",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Six-player realtime 3D tabletop suspense game",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test",
+    "check": "node --check server/index.js && node --check server/game.js && node --check public/game.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "socket.io": "^4.8.1",
+    "three": "^0.179.1"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.1"
+  }
+}
