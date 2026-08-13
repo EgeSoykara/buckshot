@@ -10,7 +10,6 @@ const ui = {
   roomCode: $("#room-code-label"), copyCode: $("#copy-code"), share: $("#share-button"),
   playerCount: $("#player-count"), playerList: $("#player-list"), lobby: $("#lobby-panel"),
   start: $("#start-button"), hostHint: $("#host-hint"), gameHud: $("#game-hud"),
-  ammo: $("#ammo-readout"), live: $("#live-count"), blank: $("#blank-count"), round: $("#round-label"),
   turnKicker: $("#turn-kicker"), turnTitle: $("#turn-title"), lastAction: $("#last-action"),
   passivePanel: $("#passive-panel"), passiveName: $("#passive-name"), passiveDescription: $("#passive-description"),
   targetConfirm: $("#target-confirm"), selectedTargetName: $("#selected-target-name"), fire: $("#fire-button"), fireLabel: $("#fire-button-label"),
@@ -26,6 +25,12 @@ ui.reticle = $("#aim-reticle");
 ui.reticleLabel = $("#aim-reticle-label");
 ui.turnAnnouncer = $("#turn-announcer");
 ui.turnAnnouncerName = $("#turn-announcer-name");
+ui.roundReveal = $("#round-reveal");
+ui.roundRevealKicker = $("#round-reveal-kicker");
+ui.roundLive = $("#round-live-count");
+ui.roundBlank = $("#round-blank-count");
+ui.roundShellList = $("#round-shell-list");
+ui.roundRevealStatus = $("#round-reveal-status");
 ui.characterList = $("#character-list");
 ui.characterList.innerHTML = Object.entries(CHARACTER_RULES).map(([id, character], index) => `
   <button class="character-card ${index === 0 ? "selected" : ""}" type="button" role="radio" aria-checked="${index === 0}" data-character="${id}" title="${character.passive}: ${character.description}">
@@ -59,6 +64,13 @@ let selectedTargetId = null;
 let previousCurrentPlayerId = null;
 let shotTargetId = null;
 let shotVisualUntil = 0;
+let roundReadyUntil = 0;
+let roundAnimationStart = 0;
+let roundAnimationTimers = [];
+
+function isRoundLoading() {
+  return state?.phase === "playing" && Date.now() < roundReadyUntil;
+}
 
 const characterIds = new Set(Object.keys(CHARACTER_RULES));
 let selectedCharacter = localStorage.getItem("last-chamber-character");
@@ -210,12 +222,18 @@ socket.on("game:error", ({ message }) => {
   restoreActions();
 });
 socket.on("room:state", (nextState) => {
+  const previousRound = state?.round ?? 0;
+  const receivedAt = Date.now();
   state = nextState;
-  turnEndAt = Date.now() + nextState.turnRemainingMs;
+  roundReadyUntil = receivedAt + nextState.roundReadyInMs;
+  turnEndAt = roundReadyUntil + nextState.turnRemainingMs;
   ui.home.classList.add("hidden");
   ui.room.classList.remove("hidden");
   renderState();
   sceneMode(nextState.phase);
+  if (nextState.phase === "playing" && nextState.round !== previousRound && nextState.roundReadyInMs > 0) {
+    beginRoundLoading(nextState, previousRound > 0 ? 2_250 : 0);
+  }
 });
 socket.on("game:secret", ({ message }) => {
   clearTimeout(secretTimer);
@@ -245,7 +263,6 @@ function renderState() {
   ui.lobby.classList.toggle("hidden", state.phase !== "lobby");
   ui.gameHud.classList.toggle("hidden", state.phase !== "playing");
   ui.winner.classList.toggle("hidden", state.phase !== "finished");
-  ui.ammo.classList.toggle("hidden", state.phase === "lobby");
   ui.start.classList.toggle("hidden", !isHost);
   ui.hostHint.classList.toggle("hidden", isHost);
   ui.restart.classList.toggle("hidden", !isHost);
@@ -255,11 +272,9 @@ function renderState() {
   if (state.phase === "playing") {
     const current = state.players.find((player) => player.id === state.currentPlayerId);
     const myTurn = state.currentPlayerId === state.viewerId;
-    ui.live.textContent = state.liveRemaining;
-    ui.blank.textContent = state.blankRemaining;
-    ui.round.textContent = `HAZNE ${state.round}`;
-    ui.turnKicker.textContent = myTurn ? "SIRA SENDE" : `${current?.name ?? "—"} OYNUYOR`;
-    ui.turnTitle.textContent = myTurn ? "HEDEFİNİ SEÇ" : "MASAYI İZLE";
+    const loading = isRoundLoading();
+    ui.turnKicker.textContent = loading ? `HAZNE ${state.round} YÜKLENİYOR` : (myTurn ? "SIRA SENDE" : `${current?.name ?? "—"} OYNUYOR`);
+    ui.turnTitle.textContent = loading ? "FİŞEKLERİ HATIRLA" : (myTurn ? "HEDEFİNİ SEÇ" : "MASAYI İZLE");
     ui.lastAction.textContent = state.lastAction;
     const myCharacter = CHARACTER_RULES[me?.character];
     ui.passiveName.textContent = `${myCharacter?.name ?? "KARAKTER"} / ${myCharacter?.passive ?? "PASİF"}`;
@@ -269,14 +284,14 @@ function renderState() {
       hoveredPlayerId = null;
       selectedTargetId = null;
       ui.reticle.classList.add("hidden");
-      announceTurn(current?.name ?? "—");
+      if (!loading) announceTurn(current?.name ?? "—");
     }
     previousCurrentPlayerId = state.currentPlayerId;
     if (myTurn && state.aimTargetId) selectedTargetId = state.aimTargetId;
     else if (!myTurn) selectedTargetId = null;
     const displayedTargetId = myTurn ? selectedTargetId : state.aimTargetId;
     ui.targetList.innerHTML = state.players.filter((player) => player.alive).map((player) =>
-      `<button class="target-button ${player.id === state.viewerId ? "self" : ""} ${player.id === displayedTargetId ? "selected" : ""}" data-target="${player.id}" aria-pressed="${player.id === displayedTargetId}" aria-label="Hedef seç: ${player.id === state.viewerId ? "kendin" : escapeHtml(player.name)}" ${myTurn ? "" : "disabled"}>${player.id === state.viewerId ? "KENDİNE" : escapeHtml(player.name)}</button>`
+      `<button class="target-button ${player.id === state.viewerId ? "self" : ""} ${player.id === displayedTargetId ? "selected" : ""}" data-target="${player.id}" aria-pressed="${player.id === displayedTargetId}" aria-label="Hedef seç: ${player.id === state.viewerId ? "kendin" : escapeHtml(player.name)}" ${myTurn && !loading ? "" : "disabled"}>${player.id === state.viewerId ? "KENDİNE" : escapeHtml(player.name)}</button>`
     ).join("");
     ui.targetList.querySelectorAll("button").forEach((button) => {
       button.addEventListener("pointerenter", () => setHoveredTarget(button.dataset.target));
@@ -290,7 +305,7 @@ function renderState() {
       const info = itemInfo[item] ?? { name: item, mark: "·", description: item };
       const usable = canUseItem(item, me);
       const description = item === "adrenaline" && !usable ? "Rakiplerde çalınabilecek ekipman yok." : info.description;
-      return `<button class="item-button ${usable ? "" : "unavailable"}" data-item="${item}" title="${description}" ${myTurn && usable ? "" : "disabled"}><i>${info.mark}</i><span>${info.name}</span></button>`;
+      return `<button class="item-button ${usable ? "" : "unavailable"}" data-item="${item}" title="${description}" ${myTurn && usable && !loading ? "" : "disabled"}><i>${info.mark}</i><span>${info.name}</span></button>`;
     }).join("") || "<span class='micro'>EKİPMAN YOK</span>";
     ui.itemList.querySelectorAll("button").forEach((button) => button.addEventListener("click", () => {
       socket.emit("game:item", { item: button.dataset.item });
@@ -303,6 +318,77 @@ function renderState() {
   }
   syncSeats(state.players);
   syncItemProps(state.players);
+}
+
+function shuffledRoundShells(loadout) {
+  const shells = [
+    ...Array(loadout?.live ?? 0).fill("live"),
+    ...Array(loadout?.blank ?? 0).fill("blank")
+  ];
+  for (let index = shells.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shells[index], shells[swapIndex]] = [shells[swapIndex], shells[index]];
+  }
+  return shells;
+}
+
+function beginRoundLoading(nextState, delay = 0) {
+  roundAnimationTimers.forEach(clearTimeout);
+  roundAnimationTimers = [];
+  const sequence = shuffledRoundShells(nextState.roundLoadout);
+  const revealStep = 145;
+  const loadStart = delay > 0 ? 800 : 1_500;
+  const loadStep = 310;
+  roundAnimationStart = performance.now() + delay;
+  prepareLoadingShells(sequence, loadStart);
+  disableActions();
+
+  ui.roundRevealKicker.textContent = `HAZNE ${String(nextState.round).padStart(2, "0")} · MÜHİMMAT SAYIMI`;
+  ui.roundLive.textContent = String(nextState.roundLoadout?.live ?? 0);
+  ui.roundBlank.textContent = String(nextState.roundLoadout?.blank ?? 0);
+  ui.roundRevealStatus.textContent = "FİŞEKLER SAYILIYOR";
+  ui.roundShellList.innerHTML = sequence.map((type, index) =>
+    `<i class="round-shell ${type}" data-shell-index="${index}" style="--shell-tilt:${index % 2 ? 4 : -4}deg"></i>`
+  ).join("");
+  ui.roundReveal.classList.add("hidden");
+
+  roundAnimationTimers.push(setTimeout(() => {
+    ui.roundReveal.classList.remove("hidden");
+    sequence.forEach((_type, index) => {
+      roundAnimationTimers.push(setTimeout(() => {
+        ui.roundShellList.children[index]?.classList.add("revealed");
+        playTone(sequence[index] === "live" ? 155 : 245, .055, "triangle", .025);
+      }, index * revealStep));
+    });
+  }, delay));
+
+  roundAnimationTimers.push(setTimeout(() => {
+    ui.roundRevealStatus.textContent = "POMPALIYA YÜKLENİYOR";
+    sequence.forEach((_type, index) => {
+      roundAnimationTimers.push(setTimeout(() => {
+        ui.roundShellList.children[index]?.classList.add("loading");
+        playTone(78, .075, "square", .035);
+      }, index * loadStep));
+    });
+  }, delay + loadStart));
+
+  const finishDelay = Math.max(900, nextState.roundReadyInMs + 40);
+  roundAnimationTimers.push(setTimeout(finishRoundLoading, finishDelay));
+}
+
+function finishRoundLoading() {
+  if (isRoundLoading()) {
+    roundAnimationTimers.push(setTimeout(finishRoundLoading, Math.max(40, roundReadyUntil - Date.now() + 30)));
+    return;
+  }
+  ui.roundRevealStatus.textContent = "HAZNE HAZIR";
+  ui.roundReveal.classList.add("hidden");
+  shells.children.forEach((shell) => { shell.visible = false; });
+  if (state?.phase === "playing") {
+    renderState();
+    const current = state.players.find((player) => player.id === state.currentPlayerId);
+    announceTurn(current?.name ?? "—");
+  }
 }
 
 function announceTurn(name) {
@@ -326,7 +412,7 @@ function canUseItem(item, me = state?.players.find((player) => player.id === sta
 }
 
 function restoreActions() {
-  if (!state || state.phase !== "playing" || state.currentPlayerId !== state.viewerId) return;
+  if (!state || state.phase !== "playing" || state.currentPlayerId !== state.viewerId || isRoundLoading()) return;
   ui.targetList.querySelectorAll("button").forEach((button) => { button.disabled = false; });
   ui.itemList.querySelectorAll("button").forEach((button) => {
     button.disabled = !canUseItem(button.dataset.item);
@@ -365,17 +451,18 @@ function updateAimIndicators(playerId = effectiveAimTargetId()) {
 function updateTargetControls() {
   if (!state || state.phase !== "playing") return;
   const myTurn = state.currentPlayerId === state.viewerId;
+  const loading = isRoundLoading();
   const target = state.players.find((player) => player.id === selectedTargetId && player.alive);
   const observedTarget = state.players.find((player) => player.id === state.aimTargetId && player.alive);
   const displayedTargetId = myTurn ? selectedTargetId : observedTarget?.id;
   const current = state.players.find((player) => player.id === state.currentPlayerId);
-  ui.targetConfirm.classList.toggle("locked", Boolean(myTurn && target));
+  ui.targetConfirm.classList.toggle("locked", Boolean(myTurn && target && !loading));
   ui.selectedTargetName.textContent = myTurn
     ? (target ? targetName(target.id).toLocaleUpperCase("tr-TR") : "ÖNCE HEDEF SEÇ")
     : (observedTarget
         ? `${current?.name ?? "—"} → ${targetName(observedTarget.id)}`.toLocaleUpperCase("tr-TR")
         : `${current?.name ?? "—"} HEDEF SEÇİYOR`);
-  ui.fire.disabled = !myTurn || !target;
+  ui.fire.disabled = loading || !myTurn || !target;
   ui.fireLabel.textContent = target ? `ATEŞ ET: ${target.id === state.viewerId ? "KENDİNE" : target.name.toLocaleUpperCase("tr-TR")}` : "TETİK KİLİTLİ";
   ui.targetList.querySelectorAll("button").forEach((button) => {
     const selected = button.dataset.target === displayedTargetId;
@@ -386,7 +473,7 @@ function updateTargetControls() {
 }
 
 function selectTarget(playerId) {
-  if (!state || state.phase !== "playing" || state.currentPlayerId !== state.viewerId) return;
+  if (!state || state.phase !== "playing" || state.currentPlayerId !== state.viewerId || isRoundLoading()) return;
   const target = state.players.find((player) => player.id === playerId && player.alive);
   if (!target) return;
   selectedTargetId = target.id;
@@ -399,7 +486,7 @@ function selectTarget(playerId) {
 }
 
 function fireSelectedTarget() {
-  if (!state || state.phase !== "playing" || state.currentPlayerId !== state.viewerId) return;
+  if (!state || state.phase !== "playing" || state.currentPlayerId !== state.viewerId || isRoundLoading()) return;
   const target = state.players.find((player) => player.id === selectedTargetId && player.alive);
   if (!target) return showToast("Önce namlunun çevrileceği hedefi seç.", true);
   shotTargetId = target.id;
@@ -416,6 +503,11 @@ function escapeHtml(value) {
 
 setInterval(() => {
   if (!state || state.phase !== "playing") return;
+  if (isRoundLoading()) {
+    ui.timerText.textContent = "30";
+    ui.timerBar.style.width = "100%";
+    return;
+  }
   const remaining = Math.max(0, turnEndAt - Date.now());
   ui.timerText.textContent = Math.ceil(remaining / 1000);
   ui.timerBar.style.width = `${Math.min(100, (remaining / 30_000) * 100)}%`;
@@ -822,20 +914,72 @@ gun.rotation.z = .04;
 scene.add(gun);
 
 const shells = new THREE.Group();
-const redShell = new THREE.MeshStandardMaterial({ color: 0x8c2116, roughness: .6 });
+const redShell = new THREE.MeshStandardMaterial({ color: 0xb3261d, roughness: .48, metalness: .05 });
+const blueShell = new THREE.MeshStandardMaterial({ color: 0x246f9f, roughness: .48, metalness: .05 });
 const brass = new THREE.MeshStandardMaterial({ color: 0xb38a42, roughness: .3, metalness: .7 });
-for (let i = 0; i < 8; i += 1) {
+const primer = new THREE.MeshStandardMaterial({ color: 0x6f6d65, roughness: .25, metalness: .88 });
+const spentShells = new THREE.Group();
+const spentShellBodies = [];
+
+function makeShotgunShell(type, spent = false) {
   const shell = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(.12, .12, .72, 12), redShell);
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(.12, .12, .72, 16), type === "live" ? redShell : blueShell);
   const cap = new THREE.Mesh(new THREE.CylinderGeometry(.13, .13, .16, 12), brass);
   cap.position.y = -.43;
-  shell.add(body, cap);
-  shell.position.set(-1.4 + (i % 4) * .38, -.42, 1.55 + Math.floor(i / 4) * .4);
+  const primerDisc = new THREE.Mesh(new THREE.CylinderGeometry(.052, .052, .006, 12), primer);
+  primerDisc.position.y = -.515;
+  if (spent) primerDisc.scale.setScalar(.72);
+  shell.add(body, cap, primerDisc);
   shell.rotation.z = Math.PI / 2;
-  shell.castShadow = true;
-  shells.add(shell);
+  shell.userData.shellType = type;
+  shell.traverse((object) => {
+    if (object.isMesh) object.castShadow = object.receiveShadow = true;
+  });
+  return shell;
 }
-scene.add(shells);
+
+function removeShotgunShell(parent, shell) {
+  parent.remove(shell);
+  shell.traverse((object) => object.geometry?.dispose());
+}
+
+function prepareLoadingShells(sequence, loadStart = 1_500) {
+  shells.traverse((object) => object.geometry?.dispose());
+  shells.clear();
+  sequence.forEach((type, index) => {
+    const shell = makeShotgunShell(type);
+    const rowOffset = (sequence.length - 1) * .21;
+    shell.position.set(-rowOffset + index * .42, -.42, 1.62 + Math.abs(index - (sequence.length - 1) / 2) * .025);
+    shell.userData.restPosition = shell.position.clone();
+    shell.userData.revealAt = index * 145;
+    shell.userData.loadAt = loadStart + index * 310;
+    shell.visible = false;
+    shells.add(shell);
+  });
+}
+
+function ejectSpentShell(type) {
+  const shell = makeShotgunShell(type, true);
+  const gunRotation = gun.getWorldQuaternion(new THREE.Quaternion());
+  shell.position.copy(gun.localToWorld(new THREE.Vector3(-1.2, .08, .46)));
+  shell.quaternion.copy(gunRotation);
+  shell.rotateZ(Math.PI / 2);
+  spentShells.add(shell);
+  spentShellBodies.push({
+    shell,
+    bornAt: performance.now(),
+    velocity: new THREE.Vector3(.12 + Math.random() * .24, 1.05 + Math.random() * .28, 1.55 + Math.random() * .38).applyQuaternion(gunRotation),
+    spin: new THREE.Vector3(8 + Math.random() * 5, 12 + Math.random() * 7, 7 + Math.random() * 5),
+    bounces: 0
+  });
+  while (spentShellBodies.length > 18) {
+    const oldest = spentShellBodies.shift();
+    removeShotgunShell(spentShells, oldest.shell);
+  }
+  playTone(118, .06, "triangle", .04);
+}
+
+scene.add(shells, spentShells);
 
 function makeNameSprite(name, color = "#d7ff3f") {
   const canvas = document.createElement("canvas");
@@ -1243,7 +1387,6 @@ function syncSeats(players) {
       }
     }
   });
-  shells.children.forEach((shell, index) => { shell.visible = state?.phase === "playing" && index < state.shellsRemaining; });
   const current = players.find((player) => player.id === state.currentPlayerId);
   barrelAssembly.scale.x = current?.sawed ? .52 : 1;
   pendingGunPlayerId = effectiveAimTargetId() ?? state.currentPlayerId;
@@ -1348,6 +1491,7 @@ function animateShot(result) {
     muzzleEnergy = 1;
     cameraShake = 1;
     playTone(85, .42, "sawtooth", .15);
+    setTimeout(() => ejectSpentShell(result.shell), 235);
   } else {
     ui.flash.classList.add("blank");
     cameraShake = .16;
@@ -1357,6 +1501,7 @@ function animateShot(result) {
       pumpAction = 1;
       playTone(92, .09, "triangle", .045);
     }, 310);
+    setTimeout(() => ejectSpentShell(result.shell), 520);
   }
 }
 
@@ -1369,7 +1514,11 @@ function animateItem({ actorId, item }) {
 }
 
 const clock = new THREE.Clock();
+let previousFrameAt = performance.now();
 function frame() {
+  const frameNow = performance.now();
+  const delta = Math.min(.034, Math.max(.001, (frameNow - previousFrameAt) / 1000));
+  previousFrameAt = frameNow;
   const time = clock.getElapsedTime();
   if (shotTargetId && performance.now() >= shotVisualUntil) {
     shotTargetId = null;
@@ -1396,6 +1545,60 @@ function frame() {
   muzzleLight.position.x = barrelAssembly.position.x + muzzle.position.x * barrelAssembly.scale.x + .22;
   muzzleLight.position.y = barrelAssembly.position.y + muzzle.position.y;
   muzzleLight.intensity = muzzleEnergy * 85;
+
+  if (roundAnimationStart > 0 && shells.children.length) {
+    const elapsed = frameNow - roundAnimationStart;
+    const loadingPortWorld = gun.localToWorld(new THREE.Vector3(-1.48, -.43, 0));
+    shells.children.forEach((shell) => {
+      if (elapsed < shell.userData.revealAt) {
+        shell.visible = false;
+        return;
+      }
+      if (elapsed < shell.userData.loadAt) {
+        const revealProgress = Math.min(1, (elapsed - shell.userData.revealAt) / 220);
+        shell.visible = true;
+        shell.position.copy(shell.userData.restPosition);
+        shell.position.y += (1 - revealProgress) * .34;
+        shell.scale.setScalar(.55 + revealProgress * .45);
+        return;
+      }
+      const loadProgress = Math.min(1, (elapsed - shell.userData.loadAt) / 270);
+      shell.visible = loadProgress < 1;
+      shell.position.lerpVectors(shell.userData.restPosition, loadingPortWorld, loadProgress * loadProgress);
+      shell.scale.setScalar(1 - loadProgress * .48);
+      shell.rotation.x = loadProgress * Math.PI * 1.5;
+      shell.rotation.z = Math.PI / 2 + loadProgress * .35;
+    });
+  }
+
+  for (let index = spentShellBodies.length - 1; index >= 0; index -= 1) {
+    const body = spentShellBodies[index];
+    body.velocity.y -= 4.4 * delta;
+    body.velocity.multiplyScalar(.992);
+    body.shell.position.addScaledVector(body.velocity, delta);
+    body.shell.rotation.x += body.spin.x * delta;
+    body.shell.rotation.y += body.spin.y * delta;
+    body.shell.rotation.z += body.spin.z * delta;
+    if (body.shell.position.y < -.64) {
+      body.shell.position.y = -.64;
+      if (Math.abs(body.velocity.y) > .13 && body.bounces < 4) {
+        body.velocity.y = Math.abs(body.velocity.y) * .38;
+        body.velocity.x *= .68;
+        body.velocity.z *= .68;
+        body.spin.multiplyScalar(.72);
+        body.bounces += 1;
+        if (body.bounces < 3) playTone(95 + body.bounces * 18, .035, "triangle", .018);
+      } else {
+        body.velocity.set(0, 0, 0);
+        body.spin.multiplyScalar(.82);
+      }
+    }
+    if (frameNow - body.bornAt > 24_000) {
+      removeShotgunShell(spentShells, body.shell);
+      spentShellBodies.splice(index, 1);
+    }
+  }
+
   seats.forEach((seat, index) => {
     if (!seat.visible) return;
     const player = state?.players[index];

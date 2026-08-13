@@ -2,7 +2,7 @@
 
 Arkadaşlarınla tarayıcıdan oynayabileceğin, 2–6 kişilik gerçek zamanlı 3B Lovecraftian masa gerilim oyunu. Mekanik olarak şans, hedef seçimi, karakter pasifleri ve ekipman kullanımını birleştirir; bütün kodlar, 3B modeller ve görsel kimlik bu proje için özgün hazırlanmıştır.
 
-Her oyuncu seçtiği kimliğe ait farklı yüz, beden, kıyafet, mutasyon ve pasifle temsil edilir. Bu seçim sunucuda saklanır, bütün oyunculara yayınlanır ve yeniden bağlantıda korunur. Sisli 3B masa, okült mühürler, fiziksel eşya tepsileri ve ayrıntılı pompalı oyun durumuna tepki verir. Önce hedef seçilir; sunucuya kaydedilen kırmızı namlu yönü, nişangâh ve hedef halkası odadaki bütün oyuncuların ekranında aynı kilidi gösterir. Ayrı tetik düğmesiyle ateş edilir. Dolu atışlarda ateş/parlama ve hasar, boş atışlarda kararma, mekanik klik ve pompa animasyonu gösterilir; iki sonuçta da ateş eden ile hedef ekranda açıkça yazılır.
+Her oyuncu seçtiği kimliğe ait farklı yüz, beden, kıyafet, mutasyon ve pasifle temsil edilir. Bu seçim sunucuda saklanır, bütün oyunculara yayınlanır ve yeniden bağlantıda korunur. Sisli 3B masa, okült mühürler, fiziksel eşya tepsileri ve ayrıntılı pompalı oyun durumuna tepki verir. Her raundun başında kırmızı dolu ve mavi boş fişeklerin sayısı tek tek gösterilir; sıraları gizlendikten sonra fişekler pompalıya tek tek yüklenir ve tur süresi ancak yükleme bitince başlar. Önce hedef seçilir; sunucuya kaydedilen kırmızı namlu yönü, nişangâh ve hedef halkası odadaki bütün oyuncuların ekranında aynı kilidi gösterir. Ayrı tetik düğmesiyle ateş edilir. Dolu atışlarda ateş/parlama ve hasar, boş atışlarda kararma, mekanik klik ve pompa animasyonu gösterilir; pompalama sırasında kullanılan kırmızı veya mavi kovan tahliye penceresinden çıkarak masaya düşer. İki sonuçta da ateş eden ile hedef ekranda açıkça yazılır.
 
 ## Oyuncular nasıl katılır?
 
@@ -19,6 +19,7 @@ Kurulum veya hesap gerekmez. Oda en fazla 6 kişiyi destekler. Bağlantısı kı
 - Sıranda kendini veya hayatta olan başka bir oyuncuyu seçip namluyu kilitler, ardından ayrı **Ateş Et** düğmesiyle tetiği çekersin.
 - Kendine gelen boş fişek sıranı korur. Diğer bütün atışlardan sonra sıra ilerler.
 - Hazne bitince dolu ve boş fişeklerden oluşan yeni bir hazne yüklenir.
+- Raund başında kırmızı fişeklerin dolu, mavi fişeklerin boş olduğu ve her renkten kaç adet bulunduğu gösterilir; haznedeki gerçek sıra açıklanmaz.
 - Son hayatta kalan oyuncu kazanır.
 - **Büyüteç** sıradaki fişeği gösterir; **Bira** fişeği çıkarır; **Sigara** can yeniler; **Kelepçe** rakibin turunu atlar; **El Testeresi** dolu fişeği 2 hasara çıkarır.
 - **Telefon** rastgele bir fişeği bildirir; **Çevirici** sıradaki fişeği tersine çevirir; **Adrenalin** ekipman çalar; **Eski İlaç** şansa bağlı can kazandırır veya kaybettirir.

@@ -8,6 +8,7 @@ import {
   GameRoom,
   makeMagazine,
   MAX_PLAYERS,
+  ROUND_LOAD_DURATION_MS,
   RoomStore,
 } from "../server/game.js";
 
@@ -23,6 +24,22 @@ test("haznede hem dolu hem boş fişek bulunur", () => {
     assert.ok(magazine.includes("blank"));
     assert.ok(magazine.length >= 6 && magazine.length <= 8);
   }
+});
+
+test("raund başında dolu ve boş fişek sayımı yayınlanır; tur saati yükleme sonrasında başlar", () => {
+  const room = new GameRoom("ABCDE", "p1", "Bir", "mariner");
+  room.addPlayer("p2", "İki", "host");
+  room.start("p1", 1000);
+
+  const loadingState = room.publicState("p2", 1500);
+  assert.equal(loadingState.roundLoadout.live + loadingState.roundLoadout.blank, loadingState.roundLoadout.total);
+  assert.equal(loadingState.roundLoadout.total, room.magazine.length);
+  assert.equal(loadingState.roundReadyInMs, ROUND_LOAD_DURATION_MS - 500);
+  assert.equal(loadingState.turnRemainingMs, 30_000);
+
+  const readyState = room.publicState("p2", 1000 + ROUND_LOAD_DURATION_MS);
+  assert.equal(readyState.roundReadyInMs, 0);
+  assert.equal(readyState.turnRemainingMs, 30_000);
 });
 
 test("karakter seçimi yalnızca tanımlı kimlikleri kabul eder", () => {

@@ -3,6 +3,7 @@ import { CHARACTER_IDS, CHARACTER_RULES } from "../shared/characters.js";
 
 export const MAX_PLAYERS = 6;
 export const TURN_DURATION_MS = 30_000;
+export const ROUND_LOAD_DURATION_MS = 6_000;
 export { CHARACTER_IDS, CHARACTER_RULES };
 
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -99,6 +100,8 @@ export class GameRoom {
     this.players = [];
     this.round = 0;
     this.magazine = [];
+    this.roundLoadout = { live: 0, blank: 0, total: 0 };
+    this.roundReadyAt = null;
     this.currentPlayerId = null;
     this.aimTargetId = null;
     this.turnDeadline = null;
@@ -181,13 +184,16 @@ export class GameRoom {
     }
     this.loadRound(now);
     this.currentPlayerId = this.alivePlayers()[0].id;
-    this.turnDeadline = now + TURN_DURATION_MS;
+    this.turnDeadline = this.roundReadyAt + TURN_DURATION_MS;
     this.lastAction = "İlk hazne yüklendi. Masa sessizleşti.";
   }
 
   loadRound(now = Date.now()) {
     this.round += 1;
     this.magazine = makeMagazine(this.round);
+    const live = this.magazine.filter((shell) => shell === "live").length;
+    this.roundLoadout = { live, blank: this.magazine.length - live, total: this.magazine.length };
+    this.roundReadyAt = now + ROUND_LOAD_DURATION_MS;
     for (const player of this.alivePlayers()) {
       const itemLimit = CHARACTER_RULES[player.character].itemLimit;
       while (player.items.length < itemLimit && player.items.length < this.round + 1) {
@@ -286,7 +292,7 @@ export class GameRoom {
     } else {
       if (this.magazine.length === 0) this.loadRound(now);
       if (!(selfShot && shell === "blank") || !actor.alive) this.advanceTurn(actor.id);
-      this.turnDeadline = now + TURN_DURATION_MS;
+      this.turnDeadline = Math.max(now, this.roundReadyAt ?? now) + TURN_DURATION_MS;
     }
     this.updatedAt = now;
     return { shell, selfShot, damaged, warded, damage: shell === "live" ? damage : 0, actorId: actor.id, targetId: target.id };
@@ -377,7 +383,10 @@ export class GameRoom {
     }
 
     if (consumeItem) actor.items.splice(index, 1);
-    if (loadNextRoundAfterConsumption) this.loadRound(now);
+    if (loadNextRoundAfterConsumption) {
+      this.loadRound(now);
+      this.turnDeadline = this.roundReadyAt + TURN_DURATION_MS;
+    }
     this.updatedAt = now;
     return { privateMessage, used: true, consumed: consumeItem };
   }
@@ -414,12 +423,16 @@ export class GameRoom {
       hostId: this.hostId,
       players: this.players.map(playerView),
       round: this.round,
+      roundLoadout: { ...this.roundLoadout },
+      roundReadyInMs: this.roundReadyAt ? Math.max(0, this.roundReadyAt - now) : 0,
       shellsRemaining: this.magazine.length,
       liveRemaining: liveCount,
       blankRemaining: this.magazine.length - liveCount,
       currentPlayerId: this.currentPlayerId,
       aimTargetId: this.aimTargetId,
-      turnRemainingMs: this.turnDeadline ? Math.max(0, this.turnDeadline - now) : 0,
+      turnRemainingMs: this.turnDeadline
+        ? Math.max(0, this.turnDeadline - Math.max(now, this.roundReadyAt ?? now))
+        : 0,
       lastAction: this.lastAction,
       winnerId: this.winnerId,
       viewerId,

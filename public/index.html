@@ -19,7 +19,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=DM+Mono:wght@400;500&family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=20260813-aiming-v6" />
+    <link rel="stylesheet" href="/styles.css?v=20260813-shells-v5" />
   </head>
   <body>
     <canvas id="scene" aria-hidden="true"></canvas>
@@ -101,11 +101,6 @@
             <span class="micro">ÖZEL ODA</span>
             <button id="copy-code" class="room-code" title="Davet bağlantısını kopyala"><span id="room-code-label">—</span><i>BAĞLANTIYI KOPYALA</i></button>
           </div>
-          <div id="ammo-readout" class="ammo-readout hidden">
-            <span><i class="live-dot"></i><b id="live-count">0</b> DOLU</span>
-            <span><i class="blank-dot"></i><b id="blank-count">0</b> BOŞ</span>
-            <small id="round-label">HAZNE 1</small>
-          </div>
         </div>
 
         <aside class="players-panel">
@@ -165,6 +160,22 @@
       <small id="shot-detail">—</small>
     </div>
 
+    <section id="round-reveal" class="round-reveal hidden" role="status" aria-live="assertive">
+      <div class="round-reveal-vignette"></div>
+      <div class="round-reveal-content">
+        <span id="round-reveal-kicker">HAZNE 01 · MÜHİMMAT SAYIMI</span>
+        <h2>İÇİNDE NE VAR?</h2>
+        <div class="round-shell-counts">
+          <div class="live"><i></i><b id="round-live-count">0</b><span>DOLU</span></div>
+          <em>+</em>
+          <div class="blank"><i></i><b id="round-blank-count">0</b><span>BOŞ</span></div>
+        </div>
+        <div id="round-shell-list" class="round-shell-list" aria-hidden="true"></div>
+        <p id="round-reveal-status">FİŞEKLER SAYILIYOR</p>
+        <small>SIRALAMA GİZLİ · RENKLERİ VE SAYILARI AKLINDA TUT</small>
+      </div>
+    </section>
+
     <dialog id="rules-dialog" class="rules-dialog">
       <button id="rules-close" class="rules-close" aria-label="Kuralları kapat">×</button>
       <span class="status-stamp">60 SANİYEDE ÖĞREN</span>
@@ -180,6 +191,6 @@
     </dialog>
 
     <script src="/socket.io/socket.io.js"></script>
-    <script type="module" src="/game.js?v=20260813-aiming-v15"></script>
+    <script type="module" src="/game.js?v=20260813-shells-v4"></script>
   </body>
 </html>
