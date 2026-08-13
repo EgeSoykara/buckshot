@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { resolveAimTarget } from "../shared/aiming.js";
-import { firstPersonViewForPlayer, minimumGunTrayClearance, minimumItemSlotClearance, playerSeatAngle } from "../shared/table-layout.js";
+import { FIRST_PERSON_CAMERA_HEIGHT, FIRST_PERSON_CAMERA_RADIUS, SEAT_RADIUS, firstPersonViewForPlayer, minimumGunTrayClearance, minimumItemSlotClearance, playerSeatAngle } from "../shared/table-layout.js";
 import {
   CHARACTER_RULES,
   cleanCharacter,
@@ -143,6 +143,8 @@ test("iki oyuncu karşılıklı oturur ve FPS kameraları masaya bakar", () => {
     const inwardDot = view.position.x * (view.target.x - view.position.x) + view.position.z * (view.target.z - view.position.z);
     assert.ok(inwardDot < 0);
   }
+  assert.ok(FIRST_PERSON_CAMERA_RADIUS - SEAT_RADIUS >= 1.5);
+  assert.ok(FIRST_PERSON_CAMERA_HEIGHT >= 1.6);
 });
 
 test("masa ekipmanları fişekleri, canı, hasarı ve sırayı değiştirir", () => {

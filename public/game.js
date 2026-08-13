@@ -65,6 +65,7 @@ let hoveredPlayerId = null;
 let selectedTargetId = null;
 let previousCurrentPlayerId = null;
 let shotTargetId = null;
+let shotActorId = null;
 let shotVisualUntil = 0;
 let roundReadyUntil = 0;
 let roundAnimationStart = 0;
@@ -942,6 +943,7 @@ const muzzleLight = new THREE.PointLight(0xffb14a, 0, 6, 2);
 muzzleLight.position.set(2.95, .15, 0);
 gun.add(muzzleLight);
 gun.position.set(0, -.16, 0);
+gun.scale.setScalar(.62);
 gun.rotation.y = 0;
 gun.rotation.z = .04;
 scene.add(gun);
@@ -1590,15 +1592,15 @@ function syncSeats(players) {
   });
   const current = players.find((player) => player.id === state.currentPlayerId);
   barrelAssembly.scale.x = current?.sawed ? .52 : 1;
-  pendingGunPlayerId = effectiveAimTargetId() ?? state.currentPlayerId;
+  pendingGunPlayerId = effectiveAimTargetId();
 }
 
 function setHoveredTarget(playerId) {
   hoveredPlayerId = playerId;
   const effectiveTargetId = effectiveAimTargetId();
   updateAimIndicators(effectiveTargetId);
-  pendingGunPlayerId = effectiveTargetId ?? state?.currentPlayerId ?? null;
-  if (pendingGunPlayerId) aimGunAt(pendingGunPlayerId);
+  pendingGunPlayerId = effectiveTargetId;
+  aimGunAt(pendingGunPlayerId);
 }
 
 let desiredCamera = new THREE.Vector3(8.6, 7.1, 10.8);
@@ -1606,6 +1608,17 @@ const desiredCameraTarget = new THREE.Vector3(0, -.18, -.15);
 const smoothedCameraTarget = desiredCameraTarget.clone();
 let desiredFov = 42;
 let desiredGunYaw = 0;
+const desiredGunPosition = new THREE.Vector3(0, -.3, 0);
+const smoothedGunPosition = desiredGunPosition.clone();
+const gunDirectionScratch = new THREE.Vector3();
+const cameraFallbackScratch = new THREE.Vector3();
+const cameraFocusScratch = new THREE.Vector3();
+const leftGunGrip = new THREE.Vector3(.2, -.12, -.2);
+const rightGunGrip = new THREE.Vector3(-1.88, -.47, .18);
+const leftGripScratch = new THREE.Vector3();
+const rightGripScratch = new THREE.Vector3();
+const leftHandRest = new THREE.Vector3(-.68, .05, -.92);
+const rightHandRest = new THREE.Vector3(.68, .05, -.92);
 let pendingGunPlayerId = null;
 let shotLockUntil = 0;
 let gunRecoil = 0;
@@ -1613,11 +1626,60 @@ let pumpAction = 0;
 let muzzleEnergy = 0;
 let cameraShake = 0;
 
-function aimGunAt(playerId) {
-  const index = state?.players.findIndex((player) => player.id === playerId) ?? -1;
-  if (index < 0 || !seats[index]) return;
-  const position = seats[index].position;
-  desiredGunYaw = -Math.atan2(position.z, position.x);
+function activeGunActorId() {
+  return shotActorId && performance.now() < shotVisualUntil ? shotActorId : state?.currentPlayerId ?? null;
+}
+
+function aimGunAt(playerId, actorId = activeGunActorId()) {
+  const actorIndex = state?.players.findIndex((player) => player.id === actorId) ?? -1;
+  if (actorIndex < 0 || !seats[actorIndex]) return;
+  const targetIndex = state.players.findIndex((player) => player.id === playerId);
+  const actorPosition = seats[actorIndex].position;
+  const direction = gunDirectionScratch;
+  const selfAim = targetIndex === actorIndex;
+  if (targetIndex >= 0 && !selfAim && seats[targetIndex]) {
+    direction.subVectors(seats[targetIndex].position, actorPosition);
+  } else if (selfAim) {
+    direction.set(actorPosition.x, 0, actorPosition.z);
+  } else {
+    direction.set(-actorPosition.x, 0, -actorPosition.z);
+  }
+  if (direction.lengthSq() < .001) direction.set(1, 0, 0);
+  direction.normalize();
+  const holdOffset = selfAim ? -1.62 : 1.68;
+  desiredGunPosition.set(
+    actorPosition.x + direction.x * holdOffset,
+    selfAim ? -.18 : -.32,
+    actorPosition.z + direction.z * holdOffset
+  );
+  desiredGunYaw = -Math.atan2(direction.z, direction.x);
+}
+
+function cameraFocusForPlayer(viewerIndex, fallback) {
+  const actorId = activeGunActorId();
+  const actorIndex = state?.players.findIndex((player) => player.id === actorId) ?? -1;
+  if (actorIndex < 0 || !seats[actorIndex]) return fallback;
+  const targetId = effectiveAimTargetId();
+  const targetIndex = state.players.findIndex((player) => player.id === targetId);
+  const actorPosition = seats[actorIndex].position;
+  if (viewerIndex === actorIndex) {
+    if (targetIndex >= 0 && targetIndex !== actorIndex && seats[targetIndex]) {
+      return cameraFocusScratch.set(seats[targetIndex].position.x, .12, seats[targetIndex].position.z);
+    }
+    if (targetIndex === actorIndex) {
+      return cameraFocusScratch.set(actorPosition.x * .52, -.04, actorPosition.z * .52);
+    }
+    return fallback;
+  }
+  const focus = cameraFocusScratch.set(actorPosition.x, .04, actorPosition.z);
+  if (targetIndex >= 0 && targetIndex !== actorIndex && seats[targetIndex]) {
+    focus.x += (seats[targetIndex].position.x - focus.x) * .34;
+    focus.z += (seats[targetIndex].position.z - focus.z) * .34;
+  } else {
+    focus.x *= .76;
+    focus.z *= .76;
+  }
+  return focus;
 }
 
 function sceneMode(phase) {
@@ -1628,7 +1690,7 @@ function sceneMode(phase) {
     const view = firstPersonViewForPlayer(viewerIndex, state.players.length);
     desiredCamera.set(view.position.x, view.position.y, view.position.z);
     desiredCameraTarget.set(view.target.x, view.target.y, view.target.z);
-    desiredFov = portrait ? 58 : 52;
+    desiredFov = portrait ? 66 : 60;
   } else {
     desiredCamera = portrait ? new THREE.Vector3(8.6, 7.1, 10.8) : new THREE.Vector3(6.1, 5.2, 7.9);
     desiredCameraTarget.set(0, -.18, -.15);
@@ -1675,11 +1737,12 @@ function showShotResult(result) {
 function animateShot(result) {
   const live = result.shell === "live";
   const now = performance.now();
+  shotActorId = result.actorId;
   shotTargetId = result.targetId;
   shotVisualUntil = now + (result.killed ? 2700 : (live ? 1900 : 2300));
   hoveredPlayerId = null;
   selectedTargetId = null;
-  aimGunAt(result.targetId);
+  aimGunAt(result.targetId, result.actorId);
   pendingGunPlayerId = result.targetId;
   shotLockUntil = shotVisualUntil;
   gunRecoil = live ? 1 : .13;
@@ -1736,15 +1799,19 @@ function frame() {
   const time = clock.getElapsedTime();
   if (shotTargetId && performance.now() >= shotVisualUntil) {
     shotTargetId = null;
-    pendingGunPlayerId = effectiveAimTargetId() ?? state?.currentPlayerId ?? null;
+    shotActorId = null;
+    pendingGunPlayerId = effectiveAimTargetId();
     updateAimIndicators();
   }
+  if (performance.now() > shotLockUntil) aimGunAt(pendingGunPlayerId);
   const viewerIndex = state?.players.findIndex((player) => player.id === state.viewerId) ?? -1;
   const firstPerson = state?.phase === "playing" && viewerIndex >= 0;
   const firstPersonView = firstPerson ? firstPersonViewForPlayer(viewerIndex, state.players.length) : null;
   if (firstPersonView) {
     desiredCamera.set(firstPersonView.position.x, firstPersonView.position.y, firstPersonView.position.z);
-    desiredCameraTarget.set(firstPersonView.target.x, firstPersonView.target.y, firstPersonView.target.z);
+    cameraFallbackScratch.set(firstPersonView.target.x, firstPersonView.target.y, firstPersonView.target.z);
+    const cameraFocus = cameraFocusForPlayer(viewerIndex, cameraFallbackScratch);
+    desiredCameraTarget.copy(cameraFocus);
   }
   cameraShake *= .84;
   const cinematicCamera = desiredCamera.clone();
@@ -1765,15 +1832,15 @@ function frame() {
   camera.lookAt(smoothedCameraTarget);
   camera.fov += (desiredFov - camera.fov) * .08;
   if (Math.abs(camera.fov - desiredFov) > .01) camera.updateProjectionMatrix();
-  if (performance.now() > shotLockUntil && pendingGunPlayerId) aimGunAt(pendingGunPlayerId);
   const yawDelta = Math.atan2(Math.sin(desiredGunYaw - gun.rotation.y), Math.cos(desiredGunYaw - gun.rotation.y));
   gun.rotation.y += yawDelta * .075;
   gunRecoil *= .86;
   pumpAction *= .88;
   muzzleEnergy *= .76;
-  gun.position.x = -Math.cos(gun.rotation.y) * gunRecoil * .36;
-  gun.position.z = Math.sin(gun.rotation.y) * gunRecoil * .36;
-  gun.position.y = -.2 + Math.sin(time * .7) * .014;
+  smoothedGunPosition.lerp(desiredGunPosition, .105);
+  gun.position.x = smoothedGunPosition.x - Math.cos(gun.rotation.y) * gunRecoil * .3;
+  gun.position.z = smoothedGunPosition.z + Math.sin(gun.rotation.y) * gunRecoil * .3;
+  gun.position.y = smoothedGunPosition.y + Math.sin(time * .7) * .014;
   pump.position.x = .35 - pumpAction * .52;
   actionBolt.position.x = -pumpAction * .3;
   carrier.position.y = -.438 + pumpAction * .075;
@@ -1867,6 +1934,8 @@ function frame() {
     puddle.mesh.material.opacity = .82 - Math.sin(age * Math.PI) * .08;
   });
 
+  gun.updateWorldMatrix(true, true);
+  const holdingActorId = activeGunActorId();
   seats.forEach((seat, index) => {
     if (!seat.visible) return;
     if (seat.userData.exploded) {
@@ -1876,6 +1945,7 @@ function frame() {
     }
     const player = state?.players[index];
     const active = player?.id === state?.currentPlayerId;
+    const holdingGun = player?.id === holdingActorId && player?.alive;
     seat.userData.hit *= .88;
     seat.userData.action *= .9;
     seat.userData.blankPulse *= .9;
@@ -1883,13 +1953,24 @@ function frame() {
     seat.position.y = -1.08 + breath * (active ? .035 : .012);
     seat.rotation.z = (player?.alive ? 0 : -.2) + seat.userData.hit * (index % 2 ? .16 : -.16);
     seat.userData.body.scale.y = 1 + breath * .012;
-    seat.userData.body.rotation.x += ((active ? -.055 : 0) - seat.userData.body.rotation.x) * .055;
+    seat.userData.body.rotation.x += ((holdingGun ? -.09 : (active ? -.055 : 0)) - seat.userData.body.rotation.x) * .055;
     seat.userData.head.rotation.y = Math.sin(time * .47 + index) * .055;
     seat.userData.head.rotation.x += ((active ? -.05 : .02) + seat.userData.hit * .25 - seat.userData.head.rotation.x) * .08;
-    seat.userData.leftArm.rotation.x = seat.userData.action * -.42;
-    seat.userData.rightArm.rotation.x = seat.userData.action * -.42;
-    seat.userData.leftHand.rotation.x = seat.userData.action * -.28;
-    seat.userData.rightHand.rotation.x = seat.userData.action * -.28;
+    const armTarget = holdingGun ? -1.02 : seat.userData.action * -.42;
+    seat.userData.leftArm.rotation.x += (armTarget - seat.userData.leftArm.rotation.x) * .14;
+    seat.userData.rightArm.rotation.x += (armTarget - seat.userData.rightArm.rotation.x) * .14;
+    seat.userData.leftHand.rotation.x += ((holdingGun ? -.34 : seat.userData.action * -.28) - seat.userData.leftHand.rotation.x) * .14;
+    seat.userData.rightHand.rotation.x += ((holdingGun ? -.34 : seat.userData.action * -.28) - seat.userData.rightHand.rotation.x) * .14;
+    if (holdingGun) {
+      seat.updateWorldMatrix(true, false);
+      gun.localToWorld(leftGripScratch.copy(leftGunGrip));
+      gun.localToWorld(rightGripScratch.copy(rightGunGrip));
+      seat.userData.leftHand.position.lerp(seat.worldToLocal(leftGripScratch), .18);
+      seat.userData.rightHand.position.lerp(seat.worldToLocal(rightGripScratch), .18);
+    } else {
+      seat.userData.leftHand.position.lerp(leftHandRest, .12);
+      seat.userData.rightHand.position.lerp(rightHandRest, .12);
+    }
     if (seat.userData.activeRing) seat.userData.activeRing.rotation.z = time * .7;
     if (seat.userData.targetRing) {
       const targetPulse = 1 + Math.sin(time * 8.5) * .045 + seat.userData.blankPulse * .18;

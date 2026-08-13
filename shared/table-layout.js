@@ -5,8 +5,8 @@ export const ITEM_TRAY_ANGLE_OFFSET = Math.PI / TABLE_PLAYER_SLOTS;
 export const ITEM_TRAY_HALF_WIDTH = 1.41;
 export const ITEM_TRAY_HALF_DEPTH = .5;
 export const GUN_HALF_WIDTH = .42;
-export const FIRST_PERSON_CAMERA_RADIUS = 6.35;
-export const FIRST_PERSON_CAMERA_HEIGHT = 1.05;
+export const FIRST_PERSON_CAMERA_RADIUS = 7.35;
+export const FIRST_PERSON_CAMERA_HEIGHT = 1.72;
 export const ITEM_PROP_RADIUS = .29;
 export const ITEM_SLOT_POSITIONS = Object.freeze([
   Object.freeze([-.9, -.28]),
