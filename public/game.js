@@ -1,7 +1,7 @@
 import * as THREE from "/vendor/three/three.module.js";
 import { CHARACTER_RULES } from "/shared/characters.js?v=20260813-characters-v1";
 import { resolveAimTarget } from "/shared/aiming.js?v=20260813-aiming-v2";
-import { ITEM_TRAY_RADIUS, SEAT_RADIUS, itemTrayAngle, radialPoint, seatAngle } from "/shared/table-layout.js?v=20260813-layout-v1";
+import { ITEM_SLOT_POSITIONS, ITEM_TRAY_RADIUS, SEAT_RADIUS, firstPersonViewForPlayer, itemTrayAngle, playerSeatAngle, playerSeatSlot, radialPoint, seatAngle } from "/shared/table-layout.js?v=20260813-fps-layout-v1";
 
 const $ = (selector) => document.querySelector(selector);
 const socket = window.io({ transports: ["websocket", "polling"] });
@@ -1268,6 +1268,14 @@ function ensureSeatCharacter(index, characterId, forceRebuild = false) {
   return nextSeat;
 }
 
+function placeSeatForPlayer(seat, playerIndex, playerCount) {
+  const angle = playerSeatAngle(playerIndex, playerCount);
+  const position = radialPoint(angle, SEAT_RADIUS);
+  seat.position.set(position.x, -1.08, position.z);
+  seat.rotation.y = -angle + Math.PI / 2;
+  seat.userData.baseAngle = seat.rotation.y;
+}
+
 const deathEffects = new THREE.Group();
 const deathBodies = [];
 const deathPuddles = [];
@@ -1414,7 +1422,6 @@ function explodeCharacter(index, ownerId) {
 const itemTrays = [];
 const trayMaterial = new THREE.MeshStandardMaterial({ color: 0x181c18, roughness: .84, metalness: .08 });
 const trayEdgeMaterial = new THREE.MeshStandardMaterial({ color: 0x706149, roughness: .48, metalness: .36 });
-const itemSlotPositions = [[-.78, -.27], [0, -.27], [.78, -.27], [-.42, .3], [.42, .3]];
 for (let i = 0; i < 6; i += 1) {
   const angle = itemTrayAngle(i);
   const position = radialPoint(angle, ITEM_TRAY_RADIUS);
@@ -1435,13 +1442,14 @@ for (let i = 0; i < 6; i += 1) {
   const props = new THREE.Group();
   props.position.y = .1;
   tray.add(props);
-  for (const [x, z] of itemSlotPositions) {
-    const slot = new THREE.Mesh(
-      new THREE.CylinderGeometry(.28, .28, .025, 20),
-      new THREE.MeshStandardMaterial({ color: 0x202a25, emissive: 0x0d1713, emissiveIntensity: .45, roughness: .78, metalness: .16 })
-    );
-    slot.position.set(x, .075, z);
-    tray.add(slot);
+  for (const [x, z] of ITEM_SLOT_POSITIONS) {
+    const slotMaterial = new THREE.MeshStandardMaterial({ color: 0x43514a, emissive: 0x0d1713, emissiveIntensity: .28, roughness: .76, metalness: .24 });
+    const slotRing = new THREE.Mesh(new THREE.TorusGeometry(.205, .018, 8, 24), slotMaterial);
+    slotRing.rotation.x = Math.PI / 2;
+    slotRing.position.set(x, .09, z);
+    const slotInset = new THREE.Mesh(new THREE.CylinderGeometry(.18, .18, .012, 20), trayMaterial);
+    slotInset.position.set(x, .065, z);
+    tray.add(slotRing, slotInset);
   }
   tray.position.set(position.x, -.72, position.z);
   tray.rotation.y = -angle + Math.PI / 2;
@@ -1504,13 +1512,18 @@ function makeItemProp(type) {
     add(new THREE.BoxGeometry(.18, .04, .04), red, [0, .26, -.24]);
     add(new THREE.BoxGeometry(.04, .18, .04), red, [0, .26, -.24]);
   }
-  prop.scale.setScalar(.72);
+  prop.scale.setScalar(.68);
   return prop;
 }
 
 function syncItemProps(players) {
   itemTrays.forEach((tray, playerIndex) => {
     const player = players[playerIndex];
+    const physicalSlot = playerSeatSlot(playerIndex, players.length);
+    const trayAngle = itemTrayAngle(physicalSlot);
+    const trayPosition = radialPoint(trayAngle, ITEM_TRAY_RADIUS);
+    tray.position.set(trayPosition.x, -.72, trayPosition.z);
+    tray.rotation.y = -trayAngle + Math.PI / 2;
     tray.visible = state?.phase === "playing" && Boolean(player?.alive);
     if (!player) return;
     tray.userData.base.material.color.set(player.id === state.viewerId ? 0x28331f : 0x181c18);
@@ -1528,10 +1541,11 @@ function syncItemProps(players) {
     props.clear();
     player.items.slice(0, player.itemLimit).forEach((item, index) => {
       const prop = makeItemProp(item);
-      const [x, z] = itemSlotPositions[index];
+      const [x, z] = ITEM_SLOT_POSITIONS[index];
       prop.position.set(x, .02, z);
       prop.rotation.y = (index % 2 ? -.09 : .09) + (index > 2 ? .04 : -.04);
-      prop.scale.multiplyScalar(.66);
+      prop.userData.baseY = .02;
+      prop.scale.multiplyScalar(.62);
       props.add(prop);
     });
   });
@@ -1552,12 +1566,14 @@ function syncSeats(players) {
   players.forEach((player, index) => {
     const reviveExplodedSeat = Boolean(player.alive && seats[index]?.userData.exploded);
     if (reviveExplodedSeat) clearDeathEffects(player.id);
-    ensureSeatCharacter(index, player.character, reviveExplodedSeat);
+    const seat = ensureSeatCharacter(index, player.character, reviveExplodedSeat);
+    placeSeatForPlayer(seat, index, players.length);
   });
   seats.forEach((seat, index) => {
-    seat.visible = index < players.length;
+    const player = players[index];
+    const hideLocalBody = state?.phase === "playing" && player?.id === state.viewerId;
+    seat.visible = index < players.length && !hideLocalBody;
     if (index < players.length) {
-      const player = players[index];
       seat.scale.setScalar(seat.userData.exploded ? 1 : (player.alive ? 1 : .88));
       seat.rotation.z = seat.userData.exploded ? 0 : (player.alive ? 0 : -.18);
       seat.userData.activeRing.visible = !seat.userData.exploded && player.id === state.currentPlayerId;
@@ -1586,6 +1602,9 @@ function setHoveredTarget(playerId) {
 }
 
 let desiredCamera = new THREE.Vector3(8.6, 7.1, 10.8);
+const desiredCameraTarget = new THREE.Vector3(0, -.18, -.15);
+const smoothedCameraTarget = desiredCameraTarget.clone();
+let desiredFov = 42;
 let desiredGunYaw = 0;
 let pendingGunPlayerId = null;
 let shotLockUntil = 0;
@@ -1603,9 +1622,18 @@ function aimGunAt(playerId) {
 
 function sceneMode(phase) {
   const portrait = innerWidth / innerHeight < .8;
-  desiredCamera = phase === "playing"
-    ? (portrait ? new THREE.Vector3(7.2, 6.4, 9.2) : new THREE.Vector3(5.1, 4.55, 6.7))
-    : (portrait ? new THREE.Vector3(8.6, 7.1, 10.8) : new THREE.Vector3(6.1, 5.2, 7.9));
+  const viewerIndex = state?.players.findIndex((player) => player.id === state.viewerId) ?? -1;
+  const firstPerson = phase === "playing" && viewerIndex >= 0;
+  if (firstPerson) {
+    const view = firstPersonViewForPlayer(viewerIndex, state.players.length);
+    desiredCamera.set(view.position.x, view.position.y, view.position.z);
+    desiredCameraTarget.set(view.target.x, view.target.y, view.target.z);
+    desiredFov = portrait ? 58 : 52;
+  } else {
+    desiredCamera = portrait ? new THREE.Vector3(8.6, 7.1, 10.8) : new THREE.Vector3(6.1, 5.2, 7.9);
+    desiredCameraTarget.set(0, -.18, -.15);
+    desiredFov = 42;
+  }
   gun.visible = phase !== "lobby";
   itemTrays.forEach((tray, index) => { tray.visible = phase === "playing" && Boolean(state?.players[index]?.alive); });
 }
@@ -1711,13 +1739,32 @@ function frame() {
     pendingGunPlayerId = effectiveAimTargetId() ?? state?.currentPlayerId ?? null;
     updateAimIndicators();
   }
+  const viewerIndex = state?.players.findIndex((player) => player.id === state.viewerId) ?? -1;
+  const firstPerson = state?.phase === "playing" && viewerIndex >= 0;
+  const firstPersonView = firstPerson ? firstPersonViewForPlayer(viewerIndex, state.players.length) : null;
+  if (firstPersonView) {
+    desiredCamera.set(firstPersonView.position.x, firstPersonView.position.y, firstPersonView.position.z);
+    desiredCameraTarget.set(firstPersonView.target.x, firstPersonView.target.y, firstPersonView.target.z);
+  }
   cameraShake *= .84;
   const cinematicCamera = desiredCamera.clone();
-  cinematicCamera.x += Math.sin(time * .12) * .28 + (Math.random() - .5) * cameraShake * .18;
-  cinematicCamera.y += Math.sin(time * .17) * .08 + (Math.random() - .5) * cameraShake * .12;
-  cinematicCamera.z += Math.cos(time * .12) * .2;
-  camera.position.lerp(cinematicCamera, .022);
-  camera.lookAt(0, -.18, -.15);
+  if (firstPersonView) {
+    const tangentX = -Math.sin(firstPersonView.angle);
+    const tangentZ = Math.cos(firstPersonView.angle);
+    const headSway = Math.sin(time * .7) * .018;
+    cinematicCamera.x += tangentX * headSway + (Math.random() - .5) * cameraShake * .12;
+    cinematicCamera.y += Math.sin(time * .9) * .01 + (Math.random() - .5) * cameraShake * .1;
+    cinematicCamera.z += tangentZ * headSway + (Math.random() - .5) * cameraShake * .12;
+  } else {
+    cinematicCamera.x += Math.sin(time * .12) * .28 + (Math.random() - .5) * cameraShake * .18;
+    cinematicCamera.y += Math.sin(time * .17) * .08 + (Math.random() - .5) * cameraShake * .12;
+    cinematicCamera.z += Math.cos(time * .12) * .2;
+  }
+  camera.position.lerp(cinematicCamera, firstPerson ? .075 : .022);
+  smoothedCameraTarget.lerp(desiredCameraTarget, firstPerson ? .09 : .04);
+  camera.lookAt(smoothedCameraTarget);
+  camera.fov += (desiredFov - camera.fov) * .08;
+  if (Math.abs(camera.fov - desiredFov) > .01) camera.updateProjectionMatrix();
   if (performance.now() > shotLockUntil && pendingGunPlayerId) aimGunAt(pendingGunPlayerId);
   const yawDelta = Math.atan2(Math.sin(desiredGunYaw - gun.rotation.y), Math.cos(desiredGunYaw - gun.rotation.y));
   gun.rotation.y += yawDelta * .075;
@@ -1856,7 +1903,9 @@ function frame() {
     const player = state?.players[trayIndex];
     const itemPulse = itemPulseActive && player?.id === itemPulsePlayerId ? 1 + Math.sin(time * 28) * .1 : 1;
     tray.userData.props.scale.setScalar(itemPulse);
-    tray.userData.props.children.forEach((prop, index) => { prop.rotation.y += .002 * (index % 2 ? 1 : -1); });
+    tray.userData.props.children.forEach((prop, index) => {
+      prop.position.y = (prop.userData.baseY ?? .02) + Math.sin(time * 1.4 + index) * .006;
+    });
   });
   dust.rotation.y = time * .008;
   mist.children.forEach((cloud) => {

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { resolveAimTarget } from "../shared/aiming.js";
-import { minimumGunTrayClearance } from "../shared/table-layout.js";
+import { firstPersonViewForPlayer, minimumGunTrayClearance, minimumItemSlotClearance, playerSeatAngle } from "../shared/table-layout.js";
 import {
   CHARACTER_RULES,
   cleanCharacter,
@@ -129,6 +129,20 @@ test("ölüm olayı yalnızca son canı bitiren atışta yayınlanır", () => {
 
 test("eşya tepsileri altı hedef hattının dışında güvenli boşlukta kalır", () => {
   assert.ok(minimumGunTrayClearance() > .3);
+});
+
+test("masa eşyalarının yuvaları birbirine girmeyecek açıklıkta kalır", () => {
+  assert.ok(minimumItemSlotClearance() > .09);
+});
+
+test("iki oyuncu karşılıklı oturur ve FPS kameraları masaya bakar", () => {
+  const angleDifference = Math.abs(playerSeatAngle(0, 2) - playerSeatAngle(1, 2));
+  assert.ok(Math.abs(angleDifference - Math.PI) < Number.EPSILON);
+  for (const playerIndex of [0, 1]) {
+    const view = firstPersonViewForPlayer(playerIndex, 2);
+    const inwardDot = view.position.x * (view.target.x - view.position.x) + view.position.z * (view.target.z - view.position.z);
+    assert.ok(inwardDot < 0);
+  }
 });
 
 test("masa ekipmanları fişekleri, canı, hasarı ve sırayı değiştirir", () => {
