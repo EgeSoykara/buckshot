@@ -31,6 +31,7 @@
         <span>LAST<br />CHAMBER</span>
       </a>
       <div class="top-actions">
+        <button id="rules-button" class="text-button">NASIL OYNANIR?</button>
         <div id="connection" class="connection"><i></i><span>BAĞLANIYOR</span></div>
         <button id="sound-toggle" class="icon-button" aria-label="Sesi aç veya kapat" title="Ses">◉</button>
       </div>
@@ -120,6 +121,19 @@
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <div id="flash" class="flash" aria-hidden="true"></div>
+
+    <dialog id="rules-dialog" class="rules-dialog">
+      <button id="rules-close" class="rules-close" aria-label="Kuralları kapat">×</button>
+      <span class="status-stamp">60 SANİYEDE ÖĞREN</span>
+      <h2>MASADA KALMANIN<br />DÖRT KURALI</h2>
+      <div class="rules-grid">
+        <article><b>01</b><h3>HEDEF SEÇ</h3><p>Sıranda kendini veya hayatta olan başka bir oyuncuyu hedefle.</p></article>
+        <article><b>02</b><h3>RİSK AL</h3><p>Kendine gelen boş fişek sıranı korur. Diğer atışlarda sıra ilerler.</p></article>
+        <article><b>03</b><h3>EKİPMAN KULLAN</h3><p>Tarayıcı fişeği gösterir; ilk yardım, çıkarıcı ve kalkan avantaj sağlar.</p></article>
+        <article><b>04</b><h3>SON KALAN OL</h3><p>Üç canını koru. Masadaki son oyuncu olduğunda maçı kazanırsın.</p></article>
+      </div>
+      <p class="rules-note">Her sıra 30 saniye · Oyun 2–6 kişiyle başlar · Hesap gerekmez</p>
+    </dialog>
 
     <script src="/socket.io/socket.io.js"></script>
     <script type="module" src="/game.js"></script>

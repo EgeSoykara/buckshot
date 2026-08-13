@@ -94,6 +94,8 @@ export class GameRoom {
       disconnectedAt: null
     };
     this.players.push(player);
+    const host = this.player(this.hostId);
+    if (!this.hostId || !host?.connected) this.hostId = player.id;
     this.updatedAt = now;
     this.lastAction = `${name} masaya oturdu.`;
     return player;
@@ -117,8 +119,8 @@ export class GameRoom {
   start(socketId, now = Date.now()) {
     if (socketId !== this.hostId) throw new Error("Oyunu yalnızca oda sahibi başlatabilir.");
     if (this.phase !== "lobby" && this.phase !== "finished") throw new Error("Oyun zaten başladı.");
+    this.players = this.players.filter((player) => player.connected);
     if (this.players.length < 2) throw new Error("Başlamak için en az 2 oyuncu gerekli.");
-    if (this.players.some((player) => !player.connected)) throw new Error("Bağlantısı kopmuş oyuncu var.");
 
     this.phase = "playing";
     this.round = 0;
@@ -259,16 +261,22 @@ export class GameRoom {
     if (!player) return false;
     player.connected = false;
     player.disconnectedAt = now;
+    if (this.hostId === socketId) {
+      const successor = this.players.find((candidate) => candidate.id !== socketId && candidate.connected);
+      if (successor) this.hostId = successor.id;
+    }
     this.updatedAt = now;
-    this.lastAction = `${player.name} bağlantıyı kaybetti; geri dönmesi bekleniyor.`;
+    const newHost = this.player(this.hostId);
+    this.lastAction = newHost && newHost.id !== socketId
+      ? `${player.name} bağlantıyı kaybetti. Oda sahipliği ${newHost.name} oyuncusuna geçti.`
+      : `${player.name} bağlantıyı kaybetti; geri dönmesi bekleniyor.`;
     return true;
   }
 
   removeDisconnectedLobbyPlayers(now = Date.now(), graceMs = 30_000) {
     if (this.phase !== "lobby") return;
-    const removedHost = this.players.find((player) => player.id === this.hostId && !player.connected && now - player.disconnectedAt >= graceMs);
     this.players = this.players.filter((player) => player.connected || now - player.disconnectedAt < graceMs);
-    if (removedHost) this.hostId = this.players[0]?.id ?? null;
+    if (!this.player(this.hostId)?.connected) this.hostId = this.players.find((player) => player.connected)?.id ?? null;
   }
 
   publicState(viewerId, now = Date.now()) {

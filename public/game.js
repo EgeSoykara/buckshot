@@ -14,6 +14,9 @@ const ui = {
   winner: $("#winner-panel"), winnerName: $("#winner-name"), restart: $("#restart-button"), restartHint: $("#restart-hint"),
   toast: $("#toast"), secret: $("#secret-toast"), secretMessage: $("#secret-message"), flash: $("#flash"), sound: $("#sound-toggle")
 };
+ui.rules = $("#rules-dialog");
+ui.rulesButton = $("#rules-button");
+ui.rulesClose = $("#rules-close");
 
 const itemNames = { scanner: "TARAYICI", medkit: "İLK YARDIM", extractor: "ÇIKARICI", shield: "KALKAN" };
 let state = null;
@@ -89,6 +92,11 @@ ui.sound.addEventListener("click", () => {
   ui.sound.textContent = soundEnabled ? "◉" : "○";
   showToast(soundEnabled ? "Ses açıldı." : "Ses kapatıldı.");
 });
+ui.rulesButton.addEventListener("click", () => ui.rules.showModal());
+ui.rulesClose.addEventListener("click", () => ui.rules.close());
+ui.rules.addEventListener("click", (event) => {
+  if (event.target === ui.rules) ui.rules.close();
+});
 
 socket.on("connect", () => {
   ui.connection.className = "connection online";
@@ -107,7 +115,15 @@ socket.on("session", (session) => {
   localStorage.setItem(sessionKey(session.roomCode), JSON.stringify(session));
   history.replaceState({}, "", `?room=${session.roomCode}`);
 });
-socket.on("session:expired", () => localStorage.removeItem(sessionKey(queryCode)));
+socket.on("session:expired", ({ message }) => {
+  const expiredCode = state?.code || queryCode;
+  if (expiredCode) localStorage.removeItem(sessionKey(expiredCode));
+  state = null;
+  ui.room.classList.add("hidden");
+  ui.home.classList.remove("hidden");
+  history.replaceState({}, "", location.pathname);
+  showToast(message || "Eski oda artık açık değil. Yeni bir oda kurabilirsin.", true);
+});
 socket.on("game:error", ({ message }) => showToast(message, true));
 socket.on("room:state", (nextState) => {
   state = nextState;

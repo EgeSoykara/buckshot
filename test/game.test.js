@@ -77,7 +77,39 @@ test("oturum anahtarıyla yeniden bağlanma kimliği ve sırayı taşır", () =>
   const token = room.player("old-socket").token;
   room.disconnect("old-socket", 1500);
   room.reconnect("new-socket", token, 2000);
-  assert.equal(room.hostId, "new-socket");
+  assert.equal(room.hostId, "p2");
   assert.equal(room.currentPlayerId, "new-socket");
   assert.equal(room.player("new-socket").connected, true);
+});
+
+test("oda sahibi koparsa bağlı oyuncu sahipliği devralır", () => {
+  const room = new GameRoom("ABCDE", "p1", "Bir");
+  room.addPlayer("p2", "İki");
+  room.addPlayer("p3", "Üç");
+  room.disconnect("p1", 1000);
+  assert.equal(room.hostId, "p2");
+  room.start("p2", 2000);
+  assert.equal(room.phase, "playing");
+  assert.deepEqual(room.players.map((player) => player.id), ["p2", "p3"]);
+});
+
+test("altı oyunculu maç son oyuncu kalana kadar tamamlanır", () => {
+  const room = new GameRoom("ABCDE", "p1", "Bir");
+  for (let i = 2; i <= 6; i += 1) room.addPlayer(`p${i}`, `Oyuncu ${i}`);
+  room.start("p1", 1000);
+
+  const eliminate = (shooter, target, now) => {
+    room.player(target).health = 1;
+    room.magazine = ["live", "blank"];
+    room.shoot(shooter, target, now);
+  };
+  eliminate("p1", "p2", 2000);
+  eliminate("p3", "p4", 3000);
+  eliminate("p5", "p6", 4000);
+  eliminate("p1", "p3", 5000);
+  eliminate("p5", "p1", 6000);
+
+  assert.equal(room.phase, "finished");
+  assert.equal(room.winnerId, "p5");
+  assert.deepEqual(room.alivePlayers().map((player) => player.id), ["p5"]);
 });
