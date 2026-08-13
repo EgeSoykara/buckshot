@@ -486,110 +486,6 @@ for (let i = 0; i < 12; i += 1) {
   table.add(runeLine);
 }
 
-const tableTentacles = new THREE.Group();
-const tentacleCanvas = document.createElement("canvas");
-tentacleCanvas.width = 384;
-tentacleCanvas.height = 96;
-const tentacleContext = tentacleCanvas.getContext("2d");
-tentacleContext.fillStyle = "#173a32";
-tentacleContext.fillRect(0, 0, tentacleCanvas.width, tentacleCanvas.height);
-for (let i = 0; i < 90; i += 1) {
-  tentacleContext.strokeStyle = i % 3 ? "rgba(7,25,21,.28)" : "rgba(91,130,111,.16)";
-  tentacleContext.lineWidth = .6 + Math.random() * 2.4;
-  tentacleContext.beginPath();
-  const startY = Math.random() * tentacleCanvas.height;
-  tentacleContext.moveTo(0, startY);
-  for (let x = 0; x <= tentacleCanvas.width; x += 24) tentacleContext.lineTo(x, startY + Math.sin(x * .035 + i) * (3 + Math.random() * 5));
-  tentacleContext.stroke();
-}
-const tentacleTexture = new THREE.CanvasTexture(tentacleCanvas);
-tentacleTexture.colorSpace = THREE.SRGBColorSpace;
-tentacleTexture.wrapS = tentacleTexture.wrapT = THREE.RepeatWrapping;
-tentacleTexture.repeat.set(3.4, 1);
-const tentacleSkin = new THREE.MeshPhysicalMaterial({ color: 0x244f44, map: tentacleTexture, emissive: 0x071a16, emissiveIntensity: .42, roughness: .72, metalness: .02, clearcoat: .32, clearcoatRoughness: .48 });
-const suckerSkin = new THREE.MeshPhysicalMaterial({ color: 0x704842, emissive: 0x210d0b, emissiveIntensity: .4, roughness: .64, clearcoat: .18 });
-
-function makeTaperedTentacleGeometry(curve, segments, baseRadius, radialSegments = 10) {
-  const frames = curve.computeFrenetFrames(segments, false);
-  const positions = [];
-  const uvs = [];
-  const indices = [];
-  const point = new THREE.Vector3();
-  const offset = new THREE.Vector3();
-  for (let segment = 0; segment <= segments; segment += 1) {
-    const progress = segment / segments;
-    curve.getPointAt(progress, point);
-    const taper = .14 + .86 * Math.pow(1 - progress, .68);
-    const organicPulse = 1 + Math.sin(progress * Math.PI * 9) * .055;
-    const radius = baseRadius * taper * organicPulse;
-    for (let side = 0; side < radialSegments; side += 1) {
-      const angle = side / radialSegments * Math.PI * 2;
-      offset.copy(frames.normals[segment]).multiplyScalar(Math.cos(angle));
-      offset.addScaledVector(frames.binormals[segment], Math.sin(angle));
-      offset.multiplyScalar(radius).add(point);
-      positions.push(offset.x, offset.y, offset.z);
-      uvs.push(progress * 3.4, side / radialSegments);
-    }
-  }
-  for (let segment = 0; segment < segments; segment += 1) {
-    for (let side = 0; side < radialSegments; side += 1) {
-      const nextSide = (side + 1) % radialSegments;
-      const a = segment * radialSegments + side;
-      const b = (segment + 1) * radialSegments + side;
-      const c = (segment + 1) * radialSegments + nextSide;
-      const d = segment * radialSegments + nextSide;
-      indices.push(a, b, d, b, c, d);
-    }
-  }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
-  geometry.setIndex(indices);
-  geometry.computeVertexNormals();
-  geometry.computeBoundingSphere();
-  return geometry;
-}
-
-for (let i = 0; i < 7; i += 1) {
-  const angle = i / 7 * Math.PI * 2 + .28;
-  const curl = i % 2 ? .7 : -.7;
-  const curve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(Math.cos(angle) * 5.35, -.58, Math.sin(angle) * 5.35),
-    new THREE.Vector3(Math.cos(angle + curl * .2) * 3.9, -.51 + (i % 3) * .035, Math.sin(angle + curl * .2) * 3.9),
-    new THREE.Vector3(Math.cos(angle + curl * .72) * 2.35, -.48, Math.sin(angle + curl * .72) * 2.35),
-    new THREE.Vector3(Math.cos(angle + curl * 1.55) * .92, -.43, Math.sin(angle + curl * 1.55) * .92)
-  ]);
-  const strand = new THREE.Group();
-  const tube = new THREE.Mesh(makeTaperedTentacleGeometry(curve, 40, .21 + (i % 3) * .025), tentacleSkin);
-  tube.castShadow = tube.receiveShadow = true;
-  strand.add(tube);
-  for (const progress of [.16, .34, .54, .72, .87]) {
-    const joint = new THREE.Mesh(new THREE.SphereGeometry(.15 * (1.18 - progress * .42), 12, 9), tentacleSkin);
-    joint.position.copy(curve.getPoint(progress));
-    joint.scale.set(1.12, .72, 1.08);
-    strand.add(joint);
-  }
-  for (let cup = 4; cup < 36; cup += 5) {
-    const point = curve.getPoint(cup / 40);
-    const sucker = new THREE.Mesh(new THREE.TorusGeometry(.065, .023, 6, 12), suckerSkin);
-    sucker.position.copy(point);
-    sucker.position.y -= .095;
-    sucker.rotation.x = Math.PI / 2;
-    sucker.scale.setScalar(1 - cup / 70);
-    strand.add(sucker);
-  }
-  const tipDirection = curve.getTangent(1).normalize();
-  const tip = new THREE.Mesh(new THREE.ConeGeometry(.11, .68, 12), tentacleSkin);
-  tip.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tipDirection);
-  tip.position.copy(curve.getPoint(1)).addScaledVector(tipDirection, .29);
-  tip.castShadow = true;
-  strand.add(tip);
-  strand.userData.phase = i * 1.41;
-  tableTentacles.add(strand);
-}
-tableTentacles.position.y = .02;
-scene.add(tableTentacles);
-
 function makeMistTexture() {
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = 256;
@@ -882,12 +778,12 @@ function makeNameSprite(name, color = "#d7ff3f") {
 
 const seats = [];
 const characterProfiles = [
-  { id: "mariner", coat: 0x7f302b, shirt: 0x211a17, skin: 0xa96f55, hair: 0x1a110e, accent: 0xd7ff3f, eldritch: 0x3d6657, head: [1, 1.08, .94], hat: "flat", mutation: "tentacles" },
+  { id: "mariner", coat: 0x7f302b, shirt: 0x211a17, skin: 0xa96f55, hair: 0x1a110e, accent: 0xd7ff3f, eldritch: 0x3d6657, head: [1, 1.08, .94], hat: "flat", mutation: "gills" },
   { id: "witness", coat: 0x28556b, shirt: 0xb8b39f, skin: 0x704738, hair: 0x0e0c0b, accent: 0x79c8ef, eldritch: 0x3f7773, head: [.92, 1.02, 1], hat: "glasses", mutation: "gills" },
   { id: "host", coat: 0x4e6030, shirt: 0x29241d, skin: 0xbd8569, hair: 0x2b1d16, accent: 0xc6df5a, eldritch: 0x58653a, head: [1.05, .98, .92], hat: "beanie", mutation: "thirdEye" },
   { id: "scholar", coat: 0x603760, shirt: 0x211921, skin: 0x845a49, hair: 0x170f17, accent: 0xd88adc, eldritch: 0x614064, head: [.9, 1.12, .92], hat: "patch", mutation: "horns" },
   { id: "penitent", coat: 0x755224, shirt: 0x2d271e, skin: 0xb9795a, hair: 0x352015, accent: 0xe1a94b, eldritch: 0x6a5635, head: [1.08, 1, .96], hat: "band", mutation: "spines" },
-  { id: "hollow", coat: 0x285d53, shirt: 0x192c28, skin: 0x604238, hair: 0x0f1816, accent: 0x68d8c0, eldritch: 0x335f55, head: [.95, 1.06, .94], hat: "hood", mutation: "tentacles" }
+  { id: "hollow", coat: 0x285d53, shirt: 0x192c28, skin: 0x604238, hair: 0x0f1816, accent: 0x68d8c0, eldritch: 0x335f55, head: [.95, 1.06, .94], hat: "hood", mutation: "thirdEye" }
 ];
 const characterProfileById = new Map(characterProfiles.map((profile, index) => [profile.id, { ...profile, index }]));
 const organicCanvas = document.createElement("canvas");
@@ -967,41 +863,6 @@ function makeCharacter(characterId) {
   }
   if (profile.index % 2) {
     mesh(new THREE.BoxGeometry(.012, .27, .018), accentMaterial, headRig, [-.19, 1.68, -.485], [0,0,-.32]);
-  }
-
-  const addTentacle = (side, row, reach = 1) => {
-    const startX = side * (.07 + row * .035);
-    const curve = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(startX, 1.5 - row * .035, -.48),
-      new THREE.Vector3(side * (.15 + row * .04), 1.34 - row * .08, -.58),
-      new THREE.Vector3(side * (.28 + row * .06) * reach, 1.13 - row * .09, -.48),
-      new THREE.Vector3(side * (.2 + row * .08) * reach, .98 - row * .08, -.3)
-    ]);
-    const tentacle = new THREE.Mesh(new THREE.TubeGeometry(curve, 14, .038 - row * .004, 8, false), eldritchMaterial);
-    tentacle.castShadow = true;
-    headRig.add(tentacle);
-  };
-
-  if (profile.mutation === "tentacles") {
-    for (const side of [-1, 1]) for (let row = 0; row < 3; row += 1) addTentacle(side, row, 1 + profile.index * .025);
-    mesh(new THREE.SphereGeometry(.16, 16, 10), eldritchMaterial, headRig, [0, 1.43, -.5], [0,0,0], [1.1,.55,.45]);
-  } else {
-    for (const side of [-1, 1]) {
-      addTentacle(side, 0, .86);
-      addTentacle(side, 1, .72);
-    }
-  }
-
-  for (const side of [-1, 1]) {
-    const shoulderCurve = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(side * .42, 1.02, .08),
-      new THREE.Vector3(side * .76, 1.22, .02),
-      new THREE.Vector3(side * .88, 1.55, -.12),
-      new THREE.Vector3(side * .69, 1.78, -.32)
-    ]);
-    const shoulderTendril = new THREE.Mesh(new THREE.TubeGeometry(shoulderCurve, 16, .045, 8, false), eldritchMaterial);
-    shoulderTendril.castShadow = true;
-    body.add(shoulderTendril);
   }
 
   if (profile.mutation === "gills") {
@@ -1431,12 +1292,6 @@ function frame() {
     tray.userData.props.children.forEach((prop, index) => { prop.rotation.y += .002 * (index % 2 ? 1 : -1); });
   });
   dust.rotation.y = time * .008;
-  tableTentacles.children.forEach((strand) => {
-    const pulse = Math.sin(time * .58 + strand.userData.phase);
-    strand.position.y = pulse * .022;
-    strand.rotation.y = pulse * .0045;
-    strand.scale.y = 1 + pulse * .012;
-  });
   mist.children.forEach((cloud) => {
     const drift = time * .075 + cloud.userData.phase;
     cloud.position.x = cloud.userData.origin.x + Math.sin(drift) * .72;

@@ -8,7 +8,7 @@ Bu kontrol listesi, görsel veya etkileşimli bir değişiklikten sonra masaüst
 - [x] Karakter kartları tıklama, odak ve yön tuşlarıyla seçilebilir; `aria-checked` seçimi izler.
 - [x] Oda oluşturma ve katılma akışı iki ayrı istemcide tamamlanır.
 - [x] Seçilen karakterin adı, can sınırı ve pasifi her iki istemciye aynı gelir.
-- [x] 3B karakterler, masa, pompalı, sis, tentacle’lar ve eşya tepsileri WebGL hatası olmadan çizilir.
+- [x] 3B karakterler, masa, pompalı, sis, okült mühürler ve eşya tepsileri WebGL hatası olmadan çizilir.
 - [x] Sıra ve hedef değiştiğinde pompalı doğru koltuğa döner.
 - [x] 390 × 844 mobil görünümde sayfa yatay taşmaz; HUD ve oyuncu listesi kullanılabilir kalır.
 - [x] Adrenalin, rakipte ekipman yokken tüketilmez ve arayüz kilitlenmez.
