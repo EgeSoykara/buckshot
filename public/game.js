@@ -1,5 +1,5 @@
 import * as THREE from "/vendor/three/three.module.js";
-import { CHARACTER_RULES } from "/shared/characters.js?v=20260813-characters-v1";
+import { CHARACTER_RULES } from "/shared/characters.js?v=20260813-characters-v2";
 import { resolveAimTarget } from "/shared/aiming.js?v=20260813-aiming-v2";
 import { ITEM_TRAY_RADIUS, SEAT_RADIUS, itemTrayAngle, radialPoint, seatAngle } from "/shared/table-layout.js?v=20260813-layout-v1";
 
@@ -33,6 +33,7 @@ ui.roundBlank = $("#round-blank-count");
 ui.roundShellList = $("#round-shell-list");
 ui.roundRevealStatus = $("#round-reveal-status");
 ui.deathBlood = $("#death-blood");
+ui.seatIdentities = $("#seat-identities");
 ui.characterList = $("#character-list");
 ui.characterList.innerHTML = Object.entries(CHARACTER_RULES).map(([id, character], index) => `
   <button class="character-card ${index === 0 ? "selected" : ""}" type="button" role="radio" aria-checked="${index === 0}" data-character="${id}" title="${character.passive}: ${character.description}">
@@ -70,6 +71,7 @@ let roundReadyUntil = 0;
 let roundAnimationStart = 0;
 let roundAnimationTimers = [];
 let deathBloodTimer;
+let seatIdentityLabels = [];
 
 function isRoundLoading() {
   return state?.phase === "playing" && Date.now() < roundReadyUntil;
@@ -215,6 +217,8 @@ socket.on("session:expired", ({ message }) => {
   const expiredCode = state?.code || queryCode;
   if (expiredCode) localStorage.removeItem(sessionKey(expiredCode));
   state = null;
+  ui.seatIdentities.innerHTML = "";
+  seatIdentityLabels = [];
   ui.room.classList.add("hidden");
   ui.home.classList.remove("hidden");
   history.replaceState({}, "", location.pathname);
@@ -254,11 +258,16 @@ function renderState() {
   ui.roomCode.textContent = state.code;
   ui.playerCount.textContent = `${state.players.length}/6`;
   ui.playerList.innerHTML = state.players.map((player, index) => {
+    const character = CHARACTER_RULES[player.character];
     const hearts = Array.from({ length: player.maxHealth }, (_, heart) => `<i class="heart ${heart >= player.health ? "empty" : ""}"></i>`).join("");
     const flags = [player.id === state.hostId ? "ODA SAHİBİ" : "", !player.connected ? "KOPTU" : "", player.skipTurns ? "KELEPÇELİ" : "", player.sawed ? "KESİK NAMLU" : "", player.items.length ? `${player.items.length} EKİPMAN` : ""].filter(Boolean).join(" · ");
-    return `<div class="player-card ${player.id === state.currentPlayerId ? "current" : ""} ${!player.alive ? "dead" : ""} ${!player.connected ? "disconnected" : ""}" data-player-id="${player.id}">
+    return `<div class="player-card ${player.id === state.currentPlayerId ? "current" : ""} ${!player.alive ? "dead" : ""} ${!player.connected ? "disconnected" : ""}" data-player-id="${player.id}" data-character="${player.character}" style="--identity-color:${character?.color ?? "#9fb9ae"}">
       <span class="player-index">${String(index + 1).padStart(2, "0")}</span>
-      <div class="player-meta"><b>${escapeHtml(player.name)}${player.id === state.viewerId ? " · SEN" : ""}</b><span><strong>${escapeHtml(player.characterName)}</strong> · ${flags || (player.alive ? "MASADA" : "ELENDİ")}</span></div>
+      <div class="player-meta">
+        <b class="player-name">${escapeHtml(player.name)}${player.id === state.viewerId ? " · SEN" : ""}</b>
+        <span class="player-status"><strong>${escapeHtml(player.characterName)}</strong> · ${flags || (player.alive ? "MASADA" : "ELENDİ")}</span>
+        <div class="player-ability" title="${escapeHtml(character?.description ?? "Karakter pasifi")}"><i>${character?.mark ?? "·"}</i><span><b>${escapeHtml(character?.passive ?? "PASİF")}</b><small>${escapeHtml(character?.short ?? "ÖZELLİK")}</small></span></div>
+      </div>
       <div class="hearts">${hearts}</div>
     </div>`;
   }).join("");
@@ -293,9 +302,10 @@ function renderState() {
     if (myTurn && state.aimTargetId) selectedTargetId = state.aimTargetId;
     else if (!myTurn) selectedTargetId = null;
     const displayedTargetId = myTurn ? selectedTargetId : state.aimTargetId;
-    ui.targetList.innerHTML = state.players.filter((player) => player.alive).map((player) =>
-      `<button class="target-button ${player.id === state.viewerId ? "self" : ""} ${player.id === displayedTargetId ? "selected" : ""}" data-target="${player.id}" aria-pressed="${player.id === displayedTargetId}" aria-label="Hedef seç: ${player.id === state.viewerId ? "kendin" : escapeHtml(player.name)}" ${myTurn && !loading ? "" : "disabled"}>${player.id === state.viewerId ? "KENDİNE" : escapeHtml(player.name)}</button>`
-    ).join("");
+    ui.targetList.innerHTML = state.players.filter((player) => player.alive).map((player) => {
+      const character = CHARACTER_RULES[player.character];
+      return `<button class="target-button ${player.id === state.viewerId ? "self" : ""} ${player.id === displayedTargetId ? "selected" : ""}" style="--identity-color:${character?.color ?? "#9fb9ae"}" data-target="${player.id}" aria-pressed="${player.id === displayedTargetId}" aria-label="Hedef seç: ${player.id === state.viewerId ? "kendin" : escapeHtml(player.name)} · ${escapeHtml(character?.passive ?? "pasif")}" ${myTurn && !loading ? "" : "disabled"}><span>${player.id === state.viewerId ? "KENDİNE" : escapeHtml(player.name)}</span><small><i>${character?.mark ?? "·"}</i>${escapeHtml(character?.short ?? "ÖZELLİK")}</small></button>`;
+    }).join("");
     ui.targetList.querySelectorAll("button").forEach((button) => {
       button.addEventListener("pointerenter", () => setHoveredTarget(button.dataset.target));
       button.addEventListener("pointerleave", () => setHoveredTarget(null));
@@ -1549,6 +1559,11 @@ const dust = new THREE.Points(dustGeometry, new THREE.PointsMaterial({ color: 0x
 scene.add(dust);
 
 function syncSeats(players) {
+  ui.seatIdentities.innerHTML = players.map((player) => {
+    const character = CHARACTER_RULES[player.character];
+    return `<div class="seat-identity ${player.id === state.currentPlayerId ? "current" : ""}" style="--identity-color:${character?.color ?? "#9fb9ae"}"><i>${character?.mark ?? "·"}</i><span><b>${escapeHtml(player.name)}${player.id === state.viewerId ? " · SEN" : ""}</b><small>${escapeHtml(character?.passive ?? "PASİF")} · ${escapeHtml(character?.short ?? "ÖZELLİK")}</small></span></div>`;
+  }).join("");
+  seatIdentityLabels = [...ui.seatIdentities.children];
   players.forEach((player, index) => {
     const reviveExplodedSeat = Boolean(player.alive && seats[index]?.userData.exploded);
     if (reviveExplodedSeat) clearDeathEffects(player.id);
@@ -1562,14 +1577,6 @@ function syncSeats(players) {
       seat.rotation.z = seat.userData.exploded ? 0 : (player.alive ? 0 : -.18);
       seat.userData.activeRing.visible = !seat.userData.exploded && player.id === state.currentPlayerId;
       seat.userData.targetRing.visible = !seat.userData.exploded && player.id === effectiveAimTargetId();
-      if (seat.userData.labelName !== player.name) {
-        if (seat.userData.label) seat.remove(seat.userData.label);
-        seat.userData.label = makeNameSprite(player.name, player.id === state.viewerId ? "#d7ff3f" : "#8b877d");
-        seat.userData.label.position.set(0, 2.65, .05);
-        seat.add(seat.userData.label);
-        seat.userData.labelName = player.name;
-      }
-      if (seat.userData.label) seat.userData.label.visible = !seat.userData.exploded;
     }
   });
   const current = players.find((player) => player.id === state.currentPlayerId);
@@ -1700,6 +1707,7 @@ function animateItem({ actorId, item }) {
 }
 
 const clock = new THREE.Clock();
+const labelProjection = new THREE.Vector3();
 let previousFrameAt = performance.now();
 function frame() {
   const frameNow = performance.now();
@@ -1822,6 +1830,15 @@ function frame() {
 
   seats.forEach((seat, index) => {
     if (!seat.visible) return;
+    const identityLabel = seatIdentityLabels[index];
+    if (identityLabel) {
+      identityLabel.hidden = seat.userData.exploded || !state?.players[index]?.alive;
+      labelProjection.set(0, 2.45, -.75);
+      seat.localToWorld(labelProjection).project(camera);
+      const labelX = Math.min(innerWidth - 112, Math.max(112, (labelProjection.x * .5 + .5) * innerWidth));
+      const labelY = Math.min(innerHeight - 82, Math.max(82, (-labelProjection.y * .5 + .5) * innerHeight));
+      identityLabel.style.transform = `translate3d(${labelX}px,${labelY}px,0) translate(-50%,-50%)`;
+    }
     if (seat.userData.exploded) {
       seat.position.y = -1.08;
       seat.rotation.z = 0;

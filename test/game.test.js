@@ -48,6 +48,15 @@ test("karakter seçimi yalnızca tanımlı kimlikleri kabul eder", () => {
   assert.throws(() => cleanCharacter("dealer"), /Geçerli bir karakter/);
 });
 
+test("her karakterin oyuncu kartında gösterilecek görsel pasif kimliği vardır", () => {
+  Object.values(CHARACTER_RULES).forEach((character) => {
+    assert.match(character.mark, /\S/);
+    assert.match(character.color, /^#[0-9a-f]{6}$/i);
+    assert.match(character.passive, /\S/);
+    assert.match(character.short, /\S/);
+  });
+});
+
 test("namlu kilidi sunucu hedefini, yerel seçimi ve atış hedefini doğru önceliklendirir", () => {
   assert.equal(resolveAimTarget({ shotTargetId: null, shotVisualUntil: 0, selectedTargetId: null, authoritativeTargetId: null, hoveredPlayerId: "p2" }, 1000), "p2");
   assert.equal(resolveAimTarget({ shotTargetId: null, shotVisualUntil: 0, selectedTargetId: null, authoritativeTargetId: "p3", hoveredPlayerId: "p2" }, 1000), "p3");
