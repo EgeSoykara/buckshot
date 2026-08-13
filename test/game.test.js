@@ -30,11 +30,29 @@ test("karakter seçimi yalnızca tanımlı kimlikleri kabul eder", () => {
   assert.throws(() => cleanCharacter("dealer"), /Geçerli bir karakter/);
 });
 
-test("namlu kilidi seçilmiş ve ateşlenmiş hedefi hover önizlemesinden üstün tutar", () => {
-  assert.equal(resolveAimTarget({ shotTargetId: null, shotVisualUntil: 0, selectedTargetId: null, hoveredPlayerId: "p2" }, 1000), "p2");
-  assert.equal(resolveAimTarget({ shotTargetId: null, shotVisualUntil: 0, selectedTargetId: "p1", hoveredPlayerId: "p2" }, 1000), "p1");
-  assert.equal(resolveAimTarget({ shotTargetId: "p3", shotVisualUntil: 2000, selectedTargetId: "p1", hoveredPlayerId: "p2" }, 1000), "p3");
-  assert.equal(resolveAimTarget({ shotTargetId: "p3", shotVisualUntil: 2000, selectedTargetId: "p1", hoveredPlayerId: "p2" }, 2000), "p1");
+test("namlu kilidi sunucu hedefini, yerel seçimi ve atış hedefini doğru önceliklendirir", () => {
+  assert.equal(resolveAimTarget({ shotTargetId: null, shotVisualUntil: 0, selectedTargetId: null, authoritativeTargetId: null, hoveredPlayerId: "p2" }, 1000), "p2");
+  assert.equal(resolveAimTarget({ shotTargetId: null, shotVisualUntil: 0, selectedTargetId: null, authoritativeTargetId: "p3", hoveredPlayerId: "p2" }, 1000), "p3");
+  assert.equal(resolveAimTarget({ shotTargetId: null, shotVisualUntil: 0, selectedTargetId: "p1", authoritativeTargetId: "p3", hoveredPlayerId: "p2" }, 1000), "p1");
+  assert.equal(resolveAimTarget({ shotTargetId: "p4", shotVisualUntil: 2000, selectedTargetId: "p1", authoritativeTargetId: "p3", hoveredPlayerId: "p2" }, 1000), "p4");
+  assert.equal(resolveAimTarget({ shotTargetId: "p4", shotVisualUntil: 2000, selectedTargetId: "p1", authoritativeTargetId: "p3", hoveredPlayerId: "p2" }, 2000), "p1");
+});
+
+test("hedef kilidi bütün oyunculara görünür ve atıştan sonra temizlenir", () => {
+  const room = new GameRoom("ABCDE", "p1", "Bir", "mariner");
+  room.addPlayer("p2", "İki", "host");
+  room.start("p1", 1000);
+  room.magazine = ["blank", "live"];
+
+  const aim = room.aim("p1", "p2", 1500);
+  assert.deepEqual(aim, { actorId: "p1", targetId: "p2" });
+  assert.equal(room.publicState("p1", 1500).aimTargetId, "p2");
+  assert.equal(room.publicState("p2", 1500).aimTargetId, "p2");
+  assert.throws(() => room.aim("p2", "p1", 1600), /sıran değil/i);
+
+  room.shoot("p1", "p2", 2000);
+  assert.equal(room.aimTargetId, null);
+  assert.equal(room.currentPlayerId, "p2");
 });
 
 test("oda en fazla altı oyuncu alır ve oyunu yalnızca ev sahibi başlatır", () => {

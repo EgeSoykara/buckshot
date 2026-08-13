@@ -100,6 +100,7 @@ export class GameRoom {
     this.round = 0;
     this.magazine = [];
     this.currentPlayerId = null;
+    this.aimTargetId = null;
     this.turnDeadline = null;
     this.lastAction = "Oda kuruldu. Rakiplerini bekliyorsun.";
     this.updatedAt = now;
@@ -151,6 +152,7 @@ export class GameRoom {
     player.disconnectedAt = null;
     if (this.hostId === oldId) this.hostId = socketId;
     if (this.currentPlayerId === oldId) this.currentPlayerId = socketId;
+    if (this.aimTargetId === oldId) this.aimTargetId = socketId;
     if (this.winnerId === oldId) this.winnerId = socketId;
     this.updatedAt = now;
     this.lastAction = `${player.name} yeniden bağlandı.`;
@@ -166,6 +168,7 @@ export class GameRoom {
     this.phase = "playing";
     this.round = 0;
     this.winnerId = null;
+    this.aimTargetId = null;
     for (const player of this.players) {
       player.health = CHARACTER_RULES[player.character].maxHealth;
       player.alive = true;
@@ -228,6 +231,15 @@ export class GameRoom {
     return actor;
   }
 
+  aim(socketId, targetId, now = Date.now()) {
+    const actor = this.assertTurn(socketId);
+    const target = this.player(targetId);
+    if (!target?.alive) throw new Error("Geçerli bir hedef seç.");
+    this.aimTargetId = target.id;
+    this.updatedAt = now;
+    return { actorId: actor.id, targetId: target.id };
+  }
+
   shoot(socketId, targetId, now = Date.now()) {
     const actor = this.assertTurn(socketId);
     const target = this.player(targetId);
@@ -263,6 +275,7 @@ export class GameRoom {
       this.lastAction = `${actor.name} ateş etti: DOLU! ${target.name} ${target.alive ? `${damage} can kaybetti.` : "elendi."}${wardMessage}`;
     }
 
+    this.aimTargetId = null;
     const alive = this.alivePlayers();
     if (alive.length === 1) {
       this.phase = "finished";
@@ -282,6 +295,7 @@ export class GameRoom {
   advanceTurn(fromId = this.currentPlayerId) {
     const candidate = this.nextAlive(fromId, true);
     if (candidate) this.currentPlayerId = candidate.id;
+    this.aimTargetId = null;
     return candidate;
   }
 
@@ -404,6 +418,7 @@ export class GameRoom {
       liveRemaining: liveCount,
       blankRemaining: this.magazine.length - liveCount,
       currentPlayerId: this.currentPlayerId,
+      aimTargetId: this.aimTargetId,
       turnRemainingMs: this.turnDeadline ? Math.max(0, this.turnDeadline - now) : 0,
       lastAction: this.lastAction,
       winnerId: this.winnerId,

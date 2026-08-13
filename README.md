@@ -2,7 +2,7 @@
 
 Arkadaşlarınla tarayıcıdan oynayabileceğin, 2–6 kişilik gerçek zamanlı 3B Lovecraftian masa gerilim oyunu. Mekanik olarak şans, hedef seçimi, karakter pasifleri ve ekipman kullanımını birleştirir; bütün kodlar, 3B modeller ve görsel kimlik bu proje için özgün hazırlanmıştır.
 
-Her oyuncu seçtiği kimliğe ait farklı yüz, beden, kıyafet, mutasyon ve pasifle temsil edilir. Bu seçim sunucuda saklanır, bütün oyunculara yayınlanır ve yeniden bağlantıda korunur. Sisli 3B masa, okült mühürler, fiziksel eşya tepsileri ve ayrıntılı pompalı oyun durumuna tepki verir. Önce hedef seçilir; kırmızı namlu yönü, nişangâh ve hedef halkası kilidi gösterir. Ayrı tetik düğmesiyle ateş edilir. Dolu atışlarda ateş/parlama ve hasar, boş atışlarda kararma, mekanik klik ve pompa animasyonu gösterilir; iki sonuçta da ateş eden ile hedef ekranda açıkça yazılır.
+Her oyuncu seçtiği kimliğe ait farklı yüz, beden, kıyafet, mutasyon ve pasifle temsil edilir. Bu seçim sunucuda saklanır, bütün oyunculara yayınlanır ve yeniden bağlantıda korunur. Sisli 3B masa, okült mühürler, fiziksel eşya tepsileri ve ayrıntılı pompalı oyun durumuna tepki verir. Önce hedef seçilir; sunucuya kaydedilen kırmızı namlu yönü, nişangâh ve hedef halkası odadaki bütün oyuncuların ekranında aynı kilidi gösterir. Ayrı tetik düğmesiyle ateş edilir. Dolu atışlarda ateş/parlama ve hasar, boş atışlarda kararma, mekanik klik ve pompa animasyonu gösterilir; iki sonuçta da ateş eden ile hedef ekranda açıkça yazılır.
 
 ## Oyuncular nasıl katılır?
 

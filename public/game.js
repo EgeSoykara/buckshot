@@ -1,6 +1,6 @@
 import * as THREE from "/vendor/three/three.module.js";
 import { CHARACTER_RULES } from "/shared/characters.js?v=20260813-characters-v1";
-import { resolveAimTarget } from "/shared/aiming.js?v=20260813-aiming-v1";
+import { resolveAimTarget } from "/shared/aiming.js?v=20260813-aiming-v2";
 
 const $ = (selector) => document.querySelector(selector);
 const socket = window.io({ transports: ["websocket", "polling"] });
@@ -272,8 +272,11 @@ function renderState() {
       announceTurn(current?.name ?? "—");
     }
     previousCurrentPlayerId = state.currentPlayerId;
+    if (myTurn && state.aimTargetId) selectedTargetId = state.aimTargetId;
+    else if (!myTurn) selectedTargetId = null;
+    const displayedTargetId = myTurn ? selectedTargetId : state.aimTargetId;
     ui.targetList.innerHTML = state.players.filter((player) => player.alive).map((player) =>
-      `<button class="target-button ${player.id === state.viewerId ? "self" : ""} ${player.id === selectedTargetId ? "selected" : ""}" data-target="${player.id}" aria-pressed="${player.id === selectedTargetId}" aria-label="Hedef seç: ${player.id === state.viewerId ? "kendin" : escapeHtml(player.name)}" ${myTurn ? "" : "disabled"}>${player.id === state.viewerId ? "KENDİNE" : escapeHtml(player.name)}</button>`
+      `<button class="target-button ${player.id === state.viewerId ? "self" : ""} ${player.id === displayedTargetId ? "selected" : ""}" data-target="${player.id}" aria-pressed="${player.id === displayedTargetId}" aria-label="Hedef seç: ${player.id === state.viewerId ? "kendin" : escapeHtml(player.name)}" ${myTurn ? "" : "disabled"}>${player.id === state.viewerId ? "KENDİNE" : escapeHtml(player.name)}</button>`
     ).join("");
     ui.targetList.querySelectorAll("button").forEach((button) => {
       button.addEventListener("pointerenter", () => setHoveredTarget(button.dataset.target));
@@ -338,7 +341,13 @@ function targetName(playerId) {
 }
 
 function effectiveAimTargetId() {
-  return resolveAimTarget({ shotTargetId, shotVisualUntil, selectedTargetId, hoveredPlayerId }, performance.now());
+  return resolveAimTarget({
+    shotTargetId,
+    shotVisualUntil,
+    selectedTargetId,
+    authoritativeTargetId: state?.aimTargetId,
+    hoveredPlayerId
+  }, performance.now());
 }
 
 function updateAimIndicators(playerId = effectiveAimTargetId()) {
@@ -357,14 +366,19 @@ function updateTargetControls() {
   if (!state || state.phase !== "playing") return;
   const myTurn = state.currentPlayerId === state.viewerId;
   const target = state.players.find((player) => player.id === selectedTargetId && player.alive);
+  const observedTarget = state.players.find((player) => player.id === state.aimTargetId && player.alive);
+  const displayedTargetId = myTurn ? selectedTargetId : observedTarget?.id;
+  const current = state.players.find((player) => player.id === state.currentPlayerId);
   ui.targetConfirm.classList.toggle("locked", Boolean(myTurn && target));
   ui.selectedTargetName.textContent = myTurn
     ? (target ? targetName(target.id).toLocaleUpperCase("tr-TR") : "ÖNCE HEDEF SEÇ")
-    : `${state.players.find((player) => player.id === state.currentPlayerId)?.name ?? "—"} ATEŞ EDECEK`;
+    : (observedTarget
+        ? `${current?.name ?? "—"} → ${targetName(observedTarget.id)}`.toLocaleUpperCase("tr-TR")
+        : `${current?.name ?? "—"} HEDEF SEÇİYOR`);
   ui.fire.disabled = !myTurn || !target;
   ui.fireLabel.textContent = target ? `ATEŞ ET: ${target.id === state.viewerId ? "KENDİNE" : target.name.toLocaleUpperCase("tr-TR")}` : "TETİK KİLİTLİ";
   ui.targetList.querySelectorAll("button").forEach((button) => {
-    const selected = button.dataset.target === selectedTargetId;
+    const selected = button.dataset.target === displayedTargetId;
     button.classList.toggle("selected", selected);
     button.setAttribute("aria-pressed", String(selected));
   });
@@ -380,6 +394,7 @@ function selectTarget(playerId) {
   setHoveredTarget(null);
   updateTargetControls();
   playTone(235, .07, "triangle", .04);
+  socket.emit("game:aim", { targetId: target.id });
   requestAnimationFrame(() => ui.fire.focus({ preventScroll: true }));
 }
 
@@ -1231,7 +1246,7 @@ function syncSeats(players) {
   shells.children.forEach((shell, index) => { shell.visible = state?.phase === "playing" && index < state.shellsRemaining; });
   const current = players.find((player) => player.id === state.currentPlayerId);
   barrelAssembly.scale.x = current?.sawed ? .52 : 1;
-  pendingGunPlayerId = selectedTargetId ?? state.currentPlayerId;
+  pendingGunPlayerId = effectiveAimTargetId() ?? state.currentPlayerId;
 }
 
 function setHoveredTarget(playerId) {
@@ -1358,7 +1373,7 @@ function frame() {
   const time = clock.getElapsedTime();
   if (shotTargetId && performance.now() >= shotVisualUntil) {
     shotTargetId = null;
-    pendingGunPlayerId = selectedTargetId ?? state?.currentPlayerId ?? null;
+    pendingGunPlayerId = effectiveAimTargetId() ?? state?.currentPlayerId ?? null;
     updateAimIndicators();
   }
   cameraShake *= .84;

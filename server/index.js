@@ -104,6 +104,17 @@ io.on("connection", (socket) => {
     }
   });
 
+  socket.on("game:aim", ({ targetId } = {}) => {
+    try {
+      const room = rooms.findBySocket(socket.id);
+      if (!room) throw new Error("Oda bulunamadı.");
+      room.aim(socket.id, targetId);
+      broadcast(room);
+    } catch (error) {
+      fail(socket, error);
+    }
+  });
+
   socket.on("game:item", ({ item } = {}) => {
     try {
       const room = rooms.findBySocket(socket.id);

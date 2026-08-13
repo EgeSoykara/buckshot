@@ -1,4 +1,4 @@
-export function resolveAimTarget({ shotTargetId, shotVisualUntil, selectedTargetId, hoveredPlayerId }, now) {
+export function resolveAimTarget({ shotTargetId, shotVisualUntil, selectedTargetId, authoritativeTargetId, hoveredPlayerId }, now) {
   if (shotTargetId && now < shotVisualUntil) return shotTargetId;
-  return selectedTargetId ?? hoveredPlayerId ?? null;
+  return selectedTargetId ?? authoritativeTargetId ?? hoveredPlayerId ?? null;
 }
