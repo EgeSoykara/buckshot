@@ -109,7 +109,7 @@ io.on("connection", (socket) => {
       if (!room) throw new Error("Oda bulunamadı.");
       const result = room.useItem(socket.id, item);
       if (result.privateMessage) socket.emit("game:secret", { message: result.privateMessage });
-      io.to(room.code).emit("game:item-used", { actorId: socket.id, item });
+      if (result.used !== false) io.to(room.code).emit("game:item-used", { actorId: socket.id, item });
       broadcast(room);
     } catch (error) {
       fail(socket, error);

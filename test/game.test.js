@@ -106,7 +106,9 @@ test("çalınacak ekipman yoksa adrenalin korunur ve oyun durumu bozulmaz", () =
   room.player("p1").items = ["adrenaline"];
   room.player("p2").items = [];
 
-  assert.throws(() => room.useItem("p1", "adrenaline", 1200), /Çalınabilecek ekipman yok/);
+  const result = room.useItem("p1", "adrenaline", 1200);
+  assert.equal(result.used, false);
+  assert.match(result.privateMessage, /Adrenalin sende kaldı/);
   assert.deepEqual(room.player("p1").items, ["adrenaline"]);
   assert.equal(room.currentPlayerId, "p1");
   assert.equal(room.phase, "playing");

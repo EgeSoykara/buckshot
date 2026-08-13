@@ -283,53 +283,75 @@ renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.28;
+renderer.toneMappingExposure = 1.36;
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x11110f);
-scene.fog = new THREE.FogExp2(0x11100e, 0.028);
+scene.background = new THREE.Color(0xb9b7aa);
+scene.fog = new THREE.FogExp2(0xc8c5b8, 0.011);
 const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, .1, 100);
 camera.position.set(8.6, 7.1, 10.8);
 camera.lookAt(0, -.2, 0);
 
-scene.add(new THREE.HemisphereLight(0xb8ad91, 0x17130f, 1.08));
-const keyLight = new THREE.SpotLight(0xffdca0, 128, 34, Math.PI / 4.5, .68, 1.35);
+scene.add(new THREE.HemisphereLight(0xfff8dc, 0x777b70, 1.32));
+const keyLight = new THREE.SpotLight(0xfff0c2, 170, 38, Math.PI / 3.6, .72, 1.15);
 keyLight.position.set(-3, 10, 4);
 keyLight.castShadow = true;
 keyLight.shadow.mapSize.set(1024, 1024);
 scene.add(keyLight);
-const fillLight = new THREE.SpotLight(0xa9c8d8, 62, 30, Math.PI / 3, .75, 1.25);
+const fillLight = new THREE.SpotLight(0xcde9f0, 95, 34, Math.PI / 2.8, .8, 1.1);
 fillLight.position.set(8, 7, 6);
 fillLight.target.position.set(0, 0, 0);
 scene.add(fillLight, fillLight.target);
-const rimLight = new THREE.PointLight(0xffb45f, 30, 18, 2);
+const rimLight = new THREE.PointLight(0xffd79b, 36, 22, 2);
 rimLight.position.set(-5, 3.5, -2.5);
 scene.add(rimLight);
-const redLight = new THREE.PointLight(0xa82413, 12, 15, 2);
-redLight.position.set(5, 2, -4);
-scene.add(redLight);
+const clinicalLight = new THREE.PointLight(0x9dd8d0, 24, 18, 2);
+clinicalLight.position.set(5, 3, -4);
+scene.add(clinicalLight);
 
-const floor = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.MeshStandardMaterial({ color: 0x11100e, roughness: .95 }));
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.MeshStandardMaterial({ color: 0x9f9b8b, roughness: .86 }));
 floor.rotation.x = -Math.PI / 2;
 floor.position.y = -2.65;
 floor.receiveShadow = true;
 scene.add(floor);
+const floorGrid = new THREE.GridHelper(80, 80, 0x8f9188, 0xd8d5c8);
+floorGrid.position.y = -2.635;
+floorGrid.material.transparent = true;
+floorGrid.material.opacity = .34;
+scene.add(floorGrid);
 
-const backWall = new THREE.Mesh(new THREE.PlaneGeometry(30, 14), new THREE.MeshStandardMaterial({ color: 0x151411, roughness: 1 }));
+const wallMaterial = new THREE.MeshStandardMaterial({ color: 0xb9b5a7, roughness: .88, side: THREE.DoubleSide });
+const backWall = new THREE.Mesh(new THREE.PlaneGeometry(30, 14), wallMaterial);
 backWall.position.set(0, 3.5, -9);
 backWall.receiveShadow = true;
 scene.add(backWall);
+for (const side of [-1, 1]) {
+  const sideWall = new THREE.Mesh(new THREE.PlaneGeometry(30, 14), wallMaterial);
+  sideWall.position.set(side * 14.5, 3.5, 0);
+  sideWall.rotation.y = Math.PI / 2;
+  sideWall.receiveShadow = true;
+  scene.add(sideWall);
+}
+const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), new THREE.MeshStandardMaterial({ color: 0xd9d6ca, roughness: .92, side: THREE.DoubleSide }));
+ceiling.position.y = 8.1;
+ceiling.rotation.x = Math.PI / 2;
+scene.add(ceiling);
 for (let x = -12; x <= 12; x += 4) {
-  const beam = new THREE.Mesh(new THREE.BoxGeometry(.18, 12, .28), new THREE.MeshStandardMaterial({ color: 0x292621, roughness: .75, metalness: .35 }));
+  const beam = new THREE.Mesh(new THREE.BoxGeometry(.13, 12, .2), new THREE.MeshStandardMaterial({ color: 0x9e9b90, roughness: .7, metalness: .25 }));
   beam.position.set(x, 2.8, -8.8);
   scene.add(beam);
 }
-const lampShade = new THREE.Mesh(new THREE.CylinderGeometry(.28, 1.35, .9, 20, 1, true), new THREE.MeshStandardMaterial({ color: 0x161614, roughness: .38, metalness: .75, side: THREE.DoubleSide }));
-lampShade.position.set(-1.4, 6.8, .3);
-scene.add(lampShade);
-const lampBulb = new THREE.Mesh(new THREE.SphereGeometry(.32, 12, 8), new THREE.MeshStandardMaterial({ color: 0xffdca0, emissive: 0xffb84f, emissiveIntensity: 5 }));
-lampBulb.position.set(-1.4, 6.4, .3);
-scene.add(lampBulb);
+const fluorescentMaterial = new THREE.MeshStandardMaterial({ color: 0xfffdec, emissive: 0xe9fff5, emissiveIntensity: 2.7, roughness: .2 });
+for (const x of [-4.2, 0, 4.2]) {
+  for (const z of [-3.4, 3.4]) {
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(3.25, .13, 1.08), fluorescentMaterial);
+    panel.position.set(x, 7.92, z);
+    scene.add(panel);
+    const panelLight = new THREE.PointLight(0xe8fff5, 19, 11, 1.6);
+    panelLight.position.set(x, 7.45, z);
+    scene.add(panelLight);
+  }
+}
 
 const monitor = new THREE.Group();
 const monitorCase = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.55, .42), new THREE.MeshStandardMaterial({ color: 0x24241f, roughness: .52, metalness: .35 }));
@@ -367,33 +389,79 @@ fan.rotation.x = Math.PI / 2;
 scene.add(fan);
 
 const table = new THREE.Group();
-const tableTop = new THREE.Mesh(new THREE.CylinderGeometry(5.4, 5.7, .42, 10), new THREE.MeshStandardMaterial({ color: 0x2a2118, roughness: .72, metalness: .05 }));
+const tableTop = new THREE.Mesh(new THREE.CylinderGeometry(5.4, 5.7, .42, 10), new THREE.MeshStandardMaterial({ color: 0x694a32, roughness: .66, metalness: .04 }));
 tableTop.position.y = -1.1;
 tableTop.castShadow = tableTop.receiveShadow = true;
 table.add(tableTop);
-const felt = new THREE.Mesh(new THREE.CylinderGeometry(4.8, 4.8, .055, 64), new THREE.MeshStandardMaterial({ color: 0x202922, roughness: .92 }));
+const felt = new THREE.Mesh(new THREE.CylinderGeometry(4.8, 4.8, .055, 64), new THREE.MeshStandardMaterial({ color: 0x506c5c, roughness: .9 }));
 felt.position.y = -.86;
 felt.receiveShadow = true;
 table.add(felt);
-const tableRim = new THREE.Mesh(new THREE.TorusGeometry(5.08, .17, 10, 10), new THREE.MeshStandardMaterial({ color: 0x4b3422, roughness: .58, metalness: .08 }));
+const tableRim = new THREE.Mesh(new THREE.TorusGeometry(5.08, .17, 10, 10), new THREE.MeshStandardMaterial({ color: 0x825d3e, roughness: .54, metalness: .06 }));
 tableRim.rotation.x = Math.PI / 2;
 tableRim.position.y = -.78;
 tableRim.castShadow = true;
 table.add(tableRim);
 for (let i = 0; i < 4; i += 1) {
-  const leg = new THREE.Mesh(new THREE.BoxGeometry(.42, 2, .42), new THREE.MeshStandardMaterial({ color: 0x17120d, roughness: .8 }));
+  const leg = new THREE.Mesh(new THREE.BoxGeometry(.42, 2, .42), new THREE.MeshStandardMaterial({ color: 0x4a3425, roughness: .8 }));
   leg.position.set(Math.cos(i * Math.PI / 2 + .7) * 3.5, -1.8, Math.sin(i * Math.PI / 2 + .7) * 3.5);
   leg.castShadow = true;
   table.add(leg);
 }
 scene.add(table);
 
+function makeSurfaceTexture(kind) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 128;
+  const context = canvas.getContext("2d");
+  context.fillStyle = kind === "wood" ? "#b16a3d" : "#9a9d98";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  for (let i = 0; i < 90; i += 1) {
+    const y = Math.random() * canvas.height;
+    context.strokeStyle = kind === "wood"
+      ? `rgba(${45 + Math.random() * 35},${18 + Math.random() * 20},8,${.08 + Math.random() * .2})`
+      : `rgba(255,255,245,${.025 + Math.random() * .06})`;
+    context.lineWidth = kind === "wood" ? .6 + Math.random() * 2.4 : .35;
+    context.beginPath();
+    context.moveTo(0, y);
+    for (let x = 0; x <= canvas.width; x += 24) {
+      context.lineTo(x, y + Math.sin(x * .035 + i) * (kind === "wood" ? 4 : .8));
+    }
+    context.stroke();
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(kind === "wood" ? 2.4 : 4, 1);
+  texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return texture;
+}
+
+function makeGunDecal(text) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 96;
+  const context = canvas.getContext("2d");
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = "rgba(225,220,197,.78)";
+  context.font = "700 38px monospace";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(text, 256, 48);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false, side: THREE.DoubleSide });
+}
+
 const gun = new THREE.Group();
-const darkMetal = new THREE.MeshStandardMaterial({ color: 0x202322, roughness: .24, metalness: .9 });
-const wornMetal = new THREE.MeshStandardMaterial({ color: 0x686a65, roughness: .34, metalness: .78 });
+const metalTexture = makeSurfaceTexture("metal");
+const woodTexture = makeSurfaceTexture("wood");
+const darkMetal = new THREE.MeshStandardMaterial({ color: 0x2b302f, map: metalTexture, roughness: .2, metalness: .94 });
+const wornMetal = new THREE.MeshStandardMaterial({ color: 0x7f817b, map: metalTexture, roughness: .28, metalness: .86 });
 const gunBlack = new THREE.MeshStandardMaterial({ color: 0x0d0f0e, roughness: .42, metalness: .72 });
-const wood = new THREE.MeshStandardMaterial({ color: 0x6a321d, roughness: .48, metalness: .04 });
-const woodDark = new THREE.MeshStandardMaterial({ color: 0x32170f, roughness: .62, metalness: .02 });
+const wood = new THREE.MeshStandardMaterial({ color: 0x814627, map: woodTexture, roughness: .42, metalness: .03 });
+const woodDark = new THREE.MeshStandardMaterial({ color: 0x4d2517, map: woodTexture, roughness: .56, metalness: .02 });
 const brassDetail = new THREE.MeshStandardMaterial({ color: 0x9a793d, roughness: .34, metalness: .72 });
 
 const barrelAssembly = new THREE.Group();
@@ -420,6 +488,13 @@ const magazineCap = new THREE.Mesh(new THREE.CylinderGeometry(.17, .17, .12, 18)
 magazineCap.rotation.z = Math.PI / 2;
 magazineCap.position.set(3.14, -.2, 0);
 barrelAssembly.add(magazineCap);
+const barrelClamp = new THREE.Mesh(new THREE.BoxGeometry(.13, .48, .4), wornMetal);
+barrelClamp.position.set(2.75, -.02, 0);
+barrelAssembly.add(barrelClamp);
+const muzzleBore = new THREE.Mesh(new THREE.CircleGeometry(.155, 24), gunBlack);
+muzzleBore.rotation.y = Math.PI / 2;
+muzzleBore.position.set(3.806, .13, 0);
+barrelAssembly.add(muzzleBore);
 gun.add(barrelAssembly);
 
 const pump = new THREE.Group();
@@ -444,6 +519,12 @@ gun.add(receiverTop);
 const ejectionPort = new THREE.Mesh(new THREE.BoxGeometry(.55, .27, .025), gunBlack);
 ejectionPort.position.set(-1.42, .08, .365);
 gun.add(ejectionPort);
+const exposedBolt = new THREE.Mesh(new THREE.BoxGeometry(.39, .16, .022), wornMetal);
+exposedBolt.position.set(-1.51, .08, .382);
+gun.add(exposedBolt);
+const boltHandle = new THREE.Mesh(new THREE.SphereGeometry(.075, 16, 10), darkMetal);
+boltHandle.position.set(-1.2, .03, .43);
+gun.add(boltHandle);
 const loadingPort = new THREE.Mesh(new THREE.BoxGeometry(.58, .025, .33), gunBlack);
 loadingPort.position.set(-1.48, -.42, 0);
 gun.add(loadingPort);
@@ -453,8 +534,18 @@ for (const x of [-1.92, -1.5]) {
   pin.position.set(x, -.1, .37);
   gun.add(pin);
 }
+const safety = new THREE.Mesh(new THREE.CylinderGeometry(.055, .055, .78, 14), new THREE.MeshStandardMaterial({ color: 0x7f1d17, roughness: .35, metalness: .35 }));
+safety.rotation.x = Math.PI / 2;
+safety.position.set(-1.92, -.26, 0);
+gun.add(safety);
+for (const side of [-1, 1]) {
+  const decal = new THREE.Mesh(new THREE.PlaneGeometry(.82, .16), makeGunDecal("12 GA · LC-06"));
+  decal.position.set(-1.68, .22, side * .356);
+  decal.rotation.y = side < 0 ? Math.PI : 0;
+  gun.add(decal);
+}
 
-const stock = new THREE.Mesh(new THREE.CylinderGeometry(.45, .3, 2.55, 8), wood);
+const stock = new THREE.Mesh(new THREE.CylinderGeometry(.45, .3, 2.55, 18), wood);
 stock.rotation.z = Math.PI / 2 - .07;
 stock.position.set(-3.45, -.16, 0);
 gun.add(stock);
@@ -466,7 +557,13 @@ const buttPlate = new THREE.Mesh(new THREE.BoxGeometry(.14, .86, .82), gunBlack)
 buttPlate.position.set(-4.72, -.25, 0);
 buttPlate.rotation.z = -.07;
 gun.add(buttPlate);
-const grip = new THREE.Mesh(new THREE.CylinderGeometry(.24, .31, 1.18, 10), woodDark);
+for (let y = -.54; y <= .08; y += .14) {
+  const groove = new THREE.Mesh(new THREE.BoxGeometry(.025, .025, .72), wornMetal);
+  groove.position.set(-4.8, y, 0);
+  groove.rotation.z = -.07;
+  gun.add(groove);
+}
+const grip = new THREE.Mesh(new THREE.CylinderGeometry(.24, .31, 1.18, 18), woodDark);
 grip.position.set(-2.13, -.73, 0);
 grip.rotation.z = -.26;
 gun.add(grip);
@@ -478,6 +575,10 @@ const trigger = new THREE.Mesh(new THREE.BoxGeometry(.05, .34, .08), brassDetail
 trigger.position.set(-1.62, -.57, 0);
 trigger.rotation.z = -.25;
 gun.add(trigger);
+const slingLoop = new THREE.Mesh(new THREE.TorusGeometry(.13, .025, 8, 20), wornMetal);
+slingLoop.rotation.x = Math.PI / 2;
+slingLoop.position.set(-4.2, -.63, 0);
+gun.add(slingLoop);
 gun.traverse((object) => {
   if (object.isMesh) object.castShadow = object.receiveShadow = true;
 });
@@ -530,12 +631,12 @@ function makeNameSprite(name, color = "#d7ff3f") {
 
 const seats = [];
 const characterProfiles = [
-  { coat: 0x7b2f25, shirt: 0x171411, skin: 0xa96f4e, hair: 0x1b1511, accent: 0xd7ff3f, head: [1, 1.08, .94], hat: "flat" },
-  { coat: 0x29465b, shirt: 0xc6bda9, skin: 0x71452f, hair: 0x0d0c0b, accent: 0x79c8ef, head: [.92, 1.02, 1], hat: "glasses" },
-  { coat: 0x4d5d2d, shirt: 0x252219, skin: 0xc18a68, hair: 0x312318, accent: 0xc6df5a, head: [1.05, .98, .92], hat: "beanie" },
-  { coat: 0x5e315e, shirt: 0x171217, skin: 0x80533b, hair: 0x130f12, accent: 0xd88adc, head: [.9, 1.12, .92], hat: "patch" },
-  { coat: 0x684620, shirt: 0x28231d, skin: 0xb77855, hair: 0x3c2517, accent: 0xe1a94b, head: [1.08, 1, .96], hat: "band" },
-  { coat: 0x28594f, shirt: 0x131b1a, skin: 0x63402f, hair: 0x0e1110, accent: 0x68d8c0, head: [.95, 1.06, .94], hat: "hood" }
+  { coat: 0x9a4035, shirt: 0x29221e, skin: 0xb77f60, hair: 0x241913, accent: 0xd7ff3f, eldritch: 0x516746, head: [1, 1.08, .94], hat: "flat", mutation: "tentacles" },
+  { coat: 0x356a86, shirt: 0xd6cdb9, skin: 0x845944, hair: 0x151311, accent: 0x79c8ef, eldritch: 0x557c79, head: [.92, 1.02, 1], hat: "glasses", mutation: "gills" },
+  { coat: 0x697b3c, shirt: 0x373126, skin: 0xd19a78, hair: 0x402d20, accent: 0xc6df5a, eldritch: 0x6b7043, head: [1.05, .98, .92], hat: "beanie", mutation: "thirdEye" },
+  { coat: 0x7b477b, shirt: 0x2a202a, skin: 0x966c56, hair: 0x201720, accent: 0xd88adc, eldritch: 0x6d4a70, head: [.9, 1.12, .92], hat: "patch", mutation: "horns" },
+  { coat: 0x8a642f, shirt: 0x3b3328, skin: 0xc68a67, hair: 0x4b3020, accent: 0xe1a94b, eldritch: 0x75633f, head: [1.08, 1, .96], hat: "band", mutation: "spines" },
+  { coat: 0x39786c, shirt: 0x243632, skin: 0x765342, hair: 0x17201d, accent: 0x68d8c0, eldritch: 0x426e62, head: [.95, 1.06, .94], hat: "hood", mutation: "tentacles" }
 ];
 
 function makeCharacter(index) {
@@ -547,6 +648,7 @@ function makeCharacter(index) {
   const skin = new THREE.MeshStandardMaterial({ color: profile.skin, emissive: 0x2c140d, emissiveIntensity: .13, roughness: .82 });
   const hairMaterial = new THREE.MeshStandardMaterial({ color: profile.hair, roughness: .95 });
   const accentMaterial = new THREE.MeshStandardMaterial({ color: profile.accent, emissive: profile.accent, emissiveIntensity: .65, roughness: .55 });
+  const eldritchMaterial = new THREE.MeshStandardMaterial({ color: profile.eldritch, emissive: profile.eldritch, emissiveIntensity: .18, roughness: .72 });
   const black = new THREE.MeshStandardMaterial({ color: 0x0c0c0b, roughness: .65, metalness: .2 });
   const body = new THREE.Group();
   const headRig = new THREE.Group();
@@ -571,6 +673,10 @@ function makeCharacter(index) {
   mesh(new THREE.CylinderGeometry(.42, .65, 1.42, 10), clothing, body, [0, .42, 0]);
   mesh(new THREE.BoxGeometry(.52, 1.12, .08), shirt, body, [0, .48, -.57]);
   mesh(new THREE.BoxGeometry(.07, .92, .07), accentMaterial, body, [0, .53, -.64], [0,0,-.03]);
+  mesh(new THREE.BoxGeometry(.38, .82, .08), clothing, body, [-.23, .57, -.62], [0,0,-.2]);
+  mesh(new THREE.BoxGeometry(.38, .82, .08), clothing, body, [.23, .57, -.62], [0,0,.2]);
+  mesh(new THREE.BoxGeometry(1.05, .12, .16), black, body, [0, -.08, -.48]);
+  for (const y of [.22, .5, .78]) mesh(new THREE.SphereGeometry(.045, 10, 8), accentMaterial, body, [0, y, -.68]);
   mesh(new THREE.SphereGeometry(.19, 12, 8), clothing, body, [-.57, .86, -.02]);
   mesh(new THREE.SphereGeometry(.19, 12, 8), clothing, body, [.57, .86, -.02]);
   mesh(new THREE.CylinderGeometry(.18, .2, .28, 10), skin, headRig, [0, 1.25, -.05]);
@@ -581,6 +687,66 @@ function makeCharacter(index) {
   for (const side of [-1, 1]) {
     mesh(new THREE.SphereGeometry(.038, 8, 6), eyeMaterial, headRig, [side * .15, 1.72, -.47]);
     mesh(new THREE.BoxGeometry(.19, .035, .035), hairMaterial, headRig, [side * .15, 1.84, -.46], [0,0,side * -.12]);
+  }
+
+  const addTentacle = (side, row, reach = 1) => {
+    const startX = side * (.07 + row * .035);
+    const curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(startX, 1.5 - row * .035, -.48),
+      new THREE.Vector3(side * (.15 + row * .04), 1.34 - row * .08, -.58),
+      new THREE.Vector3(side * (.28 + row * .06) * reach, 1.13 - row * .09, -.48),
+      new THREE.Vector3(side * (.2 + row * .08) * reach, .98 - row * .08, -.3)
+    ]);
+    const tentacle = new THREE.Mesh(new THREE.TubeGeometry(curve, 14, .038 - row * .004, 8, false), eldritchMaterial);
+    tentacle.castShadow = true;
+    headRig.add(tentacle);
+  };
+
+  if (profile.mutation === "tentacles") {
+    for (const side of [-1, 1]) for (let row = 0; row < 3; row += 1) addTentacle(side, row, 1 + index * .025);
+    mesh(new THREE.SphereGeometry(.16, 16, 10), eldritchMaterial, headRig, [0, 1.43, -.5], [0,0,0], [1.1,.55,.45]);
+  } else {
+    for (const side of [-1, 1]) {
+      addTentacle(side, 0, .86);
+      addTentacle(side, 1, .72);
+    }
+  }
+
+  for (const side of [-1, 1]) {
+    const shoulderCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(side * .42, 1.02, .08),
+      new THREE.Vector3(side * .76, 1.22, .02),
+      new THREE.Vector3(side * .88, 1.55, -.12),
+      new THREE.Vector3(side * .69, 1.78, -.32)
+    ]);
+    const shoulderTendril = new THREE.Mesh(new THREE.TubeGeometry(shoulderCurve, 16, .045, 8, false), eldritchMaterial);
+    shoulderTendril.castShadow = true;
+    body.add(shoulderTendril);
+  }
+
+  if (profile.mutation === "gills") {
+    for (const side of [-1, 1]) {
+      for (let gill = 0; gill < 3; gill += 1) {
+        mesh(new THREE.ConeGeometry(.12, .34, 8), eldritchMaterial, headRig, [side * .43, 1.62 - gill * .14, -.08], [0,0,side * -Math.PI / 2], [1,.55,1]);
+      }
+    }
+  } else if (profile.mutation === "horns") {
+    mesh(new THREE.ConeGeometry(.13, .72, 12), eldritchMaterial, headRig, [-.27, 2.18, -.04], [0,0,.28]);
+    mesh(new THREE.ConeGeometry(.13, .72, 12), eldritchMaterial, headRig, [.27, 2.18, -.04], [0,0,-.28]);
+  } else if (profile.mutation === "spines") {
+    for (const side of [-1, 1]) {
+      for (let spine = 0; spine < 3; spine += 1) mesh(new THREE.ConeGeometry(.08, .36, 8), eldritchMaterial, body, [side * (.5 + spine * .1), .95 - spine * .22, .02], [0,0,side * -.8]);
+    }
+  }
+
+  if (profile.mutation === "thirdEye" || index % 2 === 0) {
+    mesh(new THREE.SphereGeometry(.062, 12, 10), eyeMaterial, headRig, [0, 1.94, -.43], [0,0,0], [1,1.25,.5]);
+    mesh(new THREE.TorusGeometry(.095, .018, 8, 18), eldritchMaterial, headRig, [0, 1.94, -.44]);
+  } else {
+    for (const side of [-1, 1]) {
+      mesh(new THREE.SphereGeometry(.034, 10, 8), eyeMaterial, headRig, [side * .27, 1.6, -.43], [0,0,0], [1,1.15,.55]);
+      mesh(new THREE.SphereGeometry(.026, 10, 8), eyeMaterial, headRig, [side * .3, 1.51, -.39], [0,0,0], [1,1.1,.5]);
+    }
   }
 
   if (profile.hat === "flat") {
@@ -610,6 +776,9 @@ function makeCharacter(index) {
     handRig.position.set(side * .68, .05, -.92);
     mesh(new THREE.CylinderGeometry(.12, .14, .62, 10), clothing, handRig, [0, .2, .18], [Math.PI/2.6,0,side*.12]);
     mesh(new THREE.SphereGeometry(.17, 12, 9), skin, handRig, [0, -.05, -.05], [0,0,0], [1.05,.72,1.2]);
+    for (const finger of [-1, 0, 1]) {
+      mesh(new THREE.ConeGeometry(.026, .2, 8), eldritchMaterial, handRig, [finger * .065, -.12, -.15], [Math.PI / 2, 0, finger * .08]);
+    }
     body.add(armRig, handRig);
   };
   setupArm(-1, leftArm, leftHand);
@@ -937,7 +1106,7 @@ function frame() {
   fan.rotation.z = time * 1.35;
   monitorScreen.material.emissiveIntensity = 1.75 + Math.sin(time * 7.4) * .18 + Math.sin(time * 19.1) * .08;
   warningSprite.material.opacity = .82 + Math.sin(time * 5.3) * .12;
-  keyLight.intensity = 124 + Math.sin(time * 2.1) * 4 + Math.sin(time * 7.7) * 2;
+  keyLight.intensity = 166 + Math.sin(time * 2.1) * 4 + Math.sin(time * 7.7) * 2;
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }

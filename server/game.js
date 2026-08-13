@@ -294,7 +294,12 @@ export class GameRoom {
       this.lastAction = `${actor.name} kutupları tersine çevirdi.`;
     } else if (item === "adrenaline") {
       const victims = this.alivePlayers().filter((player) => player.id !== actor.id && player.items.length);
-      if (!victims.length) throw new Error("Çalınabilecek ekipman yok.");
+      if (!victims.length) {
+        privateMessage = "Rakiplerde çalınabilecek ekipman yok. Adrenalin sende kaldı.";
+        this.lastAction = `${actor.name} adrenalinle hamle yaptı ama çalınabilecek ekipman bulamadı.`;
+        this.updatedAt = now;
+        return { privateMessage, used: false };
+      }
       const victim = victims[crypto.randomInt(victims.length)];
       const stolenIndex = crypto.randomInt(victim.items.length);
       const [stolen] = victim.items.splice(stolenIndex, 1);
@@ -316,7 +321,7 @@ export class GameRoom {
 
     actor.items.splice(index, 1);
     this.updatedAt = now;
-    return { privateMessage };
+    return { privateMessage, used: true };
   }
 
   disconnect(socketId, now = Date.now()) {
