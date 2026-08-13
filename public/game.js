@@ -17,6 +17,9 @@ const ui = {
 ui.rules = $("#rules-dialog");
 ui.rulesButton = $("#rules-button");
 ui.rulesClose = $("#rules-close");
+ui.reticle = $("#aim-reticle");
+ui.turnAnnouncer = $("#turn-announcer");
+ui.turnAnnouncerName = $("#turn-announcer-name");
 
 const itemInfo = {
   magnifier: { name: "BÜYÜTEÇ", mark: "◉", description: "Sıradaki fişeği gizlice gör." },
@@ -36,6 +39,7 @@ let secretTimer;
 let soundEnabled = true;
 let audioContext;
 let hoveredPlayerId = null;
+let previousCurrentPlayerId = null;
 
 const savedName = localStorage.getItem("last-chamber-name");
 if (savedName) ui.name.value = savedName;
@@ -188,6 +192,8 @@ function renderState() {
     ui.turnKicker.textContent = myTurn ? "SIRA SENDE" : `${current?.name ?? "—"} OYNUYOR`;
     ui.turnTitle.textContent = myTurn ? "HEDEFİNİ SEÇ" : "MASAYI İZLE";
     ui.lastAction.textContent = state.lastAction;
+    if (state.currentPlayerId && state.currentPlayerId !== previousCurrentPlayerId) announceTurn(current?.name ?? "—");
+    previousCurrentPlayerId = state.currentPlayerId;
     ui.targetList.innerHTML = state.players.filter((player) => player.alive).map((player) =>
       `<button class="target-button ${player.id === state.viewerId ? "self" : ""}" data-target="${player.id}" ${myTurn ? "" : "disabled"}>${player.id === state.viewerId ? "KENDİNE" : escapeHtml(player.name)}</button>`
     ).join("");
@@ -197,6 +203,7 @@ function renderState() {
       button.addEventListener("focus", () => setHoveredTarget(button.dataset.target));
       button.addEventListener("blur", () => setHoveredTarget(null));
       button.addEventListener("click", () => {
+        setHoveredTarget(null);
         socket.emit("game:shoot", { targetId: button.dataset.target });
         disableActions();
       });
@@ -210,11 +217,21 @@ function renderState() {
       disableActions();
     }));
   } else if (state.phase === "finished") {
+    previousCurrentPlayerId = null;
     const winner = state.players.find((player) => player.id === state.winnerId);
     ui.winnerName.textContent = winner?.name ?? "KAZANAN";
   }
   syncSeats(state.players);
   syncItemProps(me?.items ?? []);
+}
+
+function announceTurn(name) {
+  ui.turnAnnouncerName.textContent = name;
+  ui.turnAnnouncer.classList.remove("hidden");
+  ui.turnAnnouncer.style.animation = "none";
+  void ui.turnAnnouncer.offsetWidth;
+  ui.turnAnnouncer.style.animation = "";
+  setTimeout(() => ui.turnAnnouncer.classList.add("hidden"), 1800);
 }
 
 function disableActions() {
@@ -280,6 +297,41 @@ scene.add(lampShade);
 const lampBulb = new THREE.Mesh(new THREE.SphereGeometry(.32, 12, 8), new THREE.MeshStandardMaterial({ color: 0xffdca0, emissive: 0xffb84f, emissiveIntensity: 5 }));
 lampBulb.position.set(-1.4, 6.4, .3);
 scene.add(lampBulb);
+
+const monitor = new THREE.Group();
+const monitorCase = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.55, .42), new THREE.MeshStandardMaterial({ color: 0x24241f, roughness: .52, metalness: .35 }));
+const monitorScreen = new THREE.Mesh(new THREE.PlaneGeometry(1.85, 1.05), new THREE.MeshStandardMaterial({ color: 0x233b27, emissive: 0x17351c, emissiveIntensity: 2.2, roughness: .35 }));
+monitorScreen.position.z = -.23;
+monitorCase.castShadow = true;
+monitor.add(monitorCase, monitorScreen);
+monitor.position.set(-6.2, 2.2, -8.45);
+monitor.rotation.y = Math.PI;
+scene.add(monitor);
+const warningSprite = makeNameSprite("CHAMBER ACTIVE", "#d7ff3f");
+warningSprite.scale.set(1.75, .44, 1);
+warningSprite.position.set(-6.2, 2.2, -8.65);
+scene.add(warningSprite);
+
+const pipeMaterial = new THREE.MeshStandardMaterial({ color: 0x30302b, roughness: .5, metalness: .6 });
+for (const x of [5.7, 6.35]) {
+  const pipe = new THREE.Mesh(new THREE.CylinderGeometry(.13, .13, 7.5, 12), pipeMaterial);
+  pipe.position.set(x, 2.1, -8.55);
+  pipe.castShadow = true;
+  scene.add(pipe);
+}
+const fan = new THREE.Group();
+const fanHub = new THREE.Mesh(new THREE.CylinderGeometry(.18, .18, .5, 10), pipeMaterial);
+fanHub.rotation.x = Math.PI / 2;
+fan.add(fanHub);
+for (let i = 0; i < 4; i += 1) {
+  const blade = new THREE.Mesh(new THREE.BoxGeometry(2.5, .11, .38), new THREE.MeshStandardMaterial({ color: 0x1c1c19, roughness: .72, metalness: .28 }));
+  blade.position.x = 1.1;
+  blade.rotation.z = i * Math.PI / 2;
+  fan.add(blade);
+}
+fan.position.set(2.8, 6.9, -1.6);
+fan.rotation.x = Math.PI / 2;
+scene.add(fan);
 
 const table = new THREE.Group();
 const tableTop = new THREE.Mesh(new THREE.CylinderGeometry(5.4, 5.7, .42, 10), new THREE.MeshStandardMaterial({ color: 0x2a2118, roughness: .72, metalness: .05 }));
@@ -387,55 +439,122 @@ function makeNameSprite(name, color = "#d7ff3f") {
 }
 
 const seats = [];
-const seatColors = [0x7d3026, 0x29465b, 0x4d5d2d, 0x5e315e, 0x684620, 0x28594f];
-for (let i = 0; i < 6; i += 1) {
-  const angle = i / 6 * Math.PI * 2 + Math.PI / 2;
+const characterProfiles = [
+  { coat: 0x7b2f25, shirt: 0x171411, skin: 0xa96f4e, hair: 0x1b1511, accent: 0xd7ff3f, head: [1, 1.08, .94], hat: "flat" },
+  { coat: 0x29465b, shirt: 0xc6bda9, skin: 0x71452f, hair: 0x0d0c0b, accent: 0x79c8ef, head: [.92, 1.02, 1], hat: "glasses" },
+  { coat: 0x4d5d2d, shirt: 0x252219, skin: 0xc18a68, hair: 0x312318, accent: 0xc6df5a, head: [1.05, .98, .92], hat: "beanie" },
+  { coat: 0x5e315e, shirt: 0x171217, skin: 0x80533b, hair: 0x130f12, accent: 0xd88adc, head: [.9, 1.12, .92], hat: "patch" },
+  { coat: 0x684620, shirt: 0x28231d, skin: 0xb77855, hair: 0x3c2517, accent: 0xe1a94b, head: [1.08, 1, .96], hat: "band" },
+  { coat: 0x28594f, shirt: 0x131b1a, skin: 0x63402f, hair: 0x0e1110, accent: 0x68d8c0, head: [.95, 1.06, .94], hat: "hood" }
+];
+
+function makeCharacter(index) {
+  const profile = characterProfiles[index];
   const seat = new THREE.Group();
   const chairMaterial = new THREE.MeshStandardMaterial({ color: 0x241c16, roughness: .8 });
-  const clothing = new THREE.MeshStandardMaterial({ color: seatColors[i], roughness: .88 });
-  const skin = new THREE.MeshStandardMaterial({ color: [0xa66e4e, 0x71452f, 0xc18a68, 0x80533b, 0xb77855, 0x63402f][i], roughness: .9 });
+  const clothing = new THREE.MeshStandardMaterial({ color: profile.coat, roughness: .86 });
+  const shirt = new THREE.MeshStandardMaterial({ color: profile.shirt, roughness: .9 });
+  const skin = new THREE.MeshStandardMaterial({ color: profile.skin, roughness: .87 });
+  const hairMaterial = new THREE.MeshStandardMaterial({ color: profile.hair, roughness: .95 });
+  const accentMaterial = new THREE.MeshStandardMaterial({ color: profile.accent, emissive: profile.accent, emissiveIntensity: .65, roughness: .55 });
+  const black = new THREE.MeshStandardMaterial({ color: 0x0c0c0b, roughness: .65, metalness: .2 });
+  const body = new THREE.Group();
+  const headRig = new THREE.Group();
+  const leftArm = new THREE.Group();
+  const rightArm = new THREE.Group();
+  const leftHand = new THREE.Group();
+  const rightHand = new THREE.Group();
+  const mesh = (geometry, material, parent, position = [0,0,0], rotation = [0,0,0], scale = [1,1,1]) => {
+    const part = new THREE.Mesh(geometry, material);
+    part.position.set(...position);
+    part.rotation.set(...rotation);
+    part.scale.set(...scale);
+    part.castShadow = true;
+    part.receiveShadow = true;
+    parent.add(part);
+    return part;
+  };
   const chairBack = new THREE.Mesh(new THREE.BoxGeometry(1.45, 2.05, .22), chairMaterial);
   chairBack.position.set(0, .2, .48);
   const chairSeat = new THREE.Mesh(new THREE.BoxGeometry(1.55, .22, 1.45), chairMaterial);
   chairSeat.position.set(0, -.62, -.08);
-  const torso = new THREE.Mesh(new THREE.CylinderGeometry(.42, .62, 1.35, 8), clothing);
-  torso.position.set(0, .45, 0);
-  const neck = new THREE.Mesh(new THREE.CylinderGeometry(.18, .2, .28, 10), skin);
-  neck.position.set(0, 1.25, -.05);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(.43, 18, 14), skin);
-  head.scale.set(.88, 1.08, .9);
-  head.position.set(0, 1.68, -.08);
-  const hair = new THREE.Mesh(new THREE.SphereGeometry(.445, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x151310, roughness: .96 }));
-  hair.position.set(0, 1.77, -.06);
-  const eyeMaterial = new THREE.MeshStandardMaterial({ color: 0xd7ff3f, emissive: 0x89a522, emissiveIntensity: 2.5 });
+  mesh(new THREE.CylinderGeometry(.42, .65, 1.42, 10), clothing, body, [0, .42, 0]);
+  mesh(new THREE.BoxGeometry(.52, 1.12, .08), shirt, body, [0, .48, -.57]);
+  mesh(new THREE.BoxGeometry(.07, .92, .07), accentMaterial, body, [0, .53, -.64], [0,0,-.03]);
+  mesh(new THREE.SphereGeometry(.19, 12, 8), clothing, body, [-.57, .86, -.02]);
+  mesh(new THREE.SphereGeometry(.19, 12, 8), clothing, body, [.57, .86, -.02]);
+  mesh(new THREE.CylinderGeometry(.18, .2, .28, 10), skin, headRig, [0, 1.25, -.05]);
+  const head = mesh(new THREE.SphereGeometry(.43, 20, 16), skin, headRig, [0, 1.68, -.08], [0,0,0], profile.head);
+  mesh(new THREE.ConeGeometry(.09, .25, 10), skin, headRig, [0, 1.66, -.49], [Math.PI / 2, 0, 0]);
+  mesh(new THREE.BoxGeometry(.28, .035, .025), black, headRig, [0, 1.48, -.48], [.05,0,0]);
+  const eyeMaterial = new THREE.MeshStandardMaterial({ color: profile.accent, emissive: profile.accent, emissiveIntensity: 3 });
   for (const side of [-1, 1]) {
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(.035, 8, 6), eyeMaterial);
-    eye.position.set(side * .15, 1.72, -.45);
-    seat.add(eye);
+    mesh(new THREE.SphereGeometry(.038, 8, 6), eyeMaterial, headRig, [side * .15, 1.72, -.47]);
+    mesh(new THREE.BoxGeometry(.19, .035, .035), hairMaterial, headRig, [side * .15, 1.84, -.46], [0,0,side * -.12]);
   }
-  for (const side of [-1, 1]) {
-    const arm = new THREE.Mesh(new THREE.CylinderGeometry(.15, .18, 1.42, 10), clothing);
-    arm.rotation.x = Math.PI / 2.35;
-    arm.rotation.z = side * -.18;
-    arm.position.set(side * .57, .42, -.53);
-    const hand = new THREE.Mesh(new THREE.SphereGeometry(.17, 10, 8), skin);
-    hand.position.set(side * .68, -.02, -1.06);
-    seat.add(arm, hand);
+
+  if (profile.hat === "flat") {
+    mesh(new THREE.CylinderGeometry(.48, .46, .18, 12), hairMaterial, headRig, [0, 2.08, -.05]);
+    mesh(new THREE.BoxGeometry(.62, .06, .36), hairMaterial, headRig, [0, 2.02, -.37]);
+  } else if (profile.hat === "glasses") {
+    for (const side of [-1,1]) mesh(new THREE.TorusGeometry(.14, .025, 8, 18), black, headRig, [side*.16, 1.72, -.49]);
+    mesh(new THREE.BoxGeometry(.12, .025, .025), black, headRig, [0, 1.72, -.5]);
+    mesh(new THREE.SphereGeometry(.445, 16, 8, 0, Math.PI*2, 0, Math.PI/2), hairMaterial, headRig, [0, 1.86, -.06]);
+  } else if (profile.hat === "beanie") {
+    mesh(new THREE.SphereGeometry(.47, 16, 10, 0, Math.PI*2, 0, Math.PI/2), clothing, headRig, [0, 1.9, -.05], [0,0,0], [1, .8, 1]);
+    mesh(new THREE.TorusGeometry(.43, .06, 8, 20), clothing, headRig, [0, 1.93, -.05], [Math.PI/2,0,0]);
+  } else if (profile.hat === "patch") {
+    mesh(new THREE.BoxGeometry(.24, .14, .035), black, headRig, [.15, 1.72, -.51], [0,0,-.08]);
+    mesh(new THREE.BoxGeometry(.72, .025, .02), black, headRig, [0, 1.79, -.5], [0,0,.12]);
+    mesh(new THREE.SphereGeometry(.445, 16, 8, 0, Math.PI*2, 0, Math.PI/2), hairMaterial, headRig, [0, 1.86, -.06]);
+  } else if (profile.hat === "band") {
+    mesh(new THREE.SphereGeometry(.445, 16, 8, 0, Math.PI*2, 0, Math.PI/2), hairMaterial, headRig, [0, 1.86, -.06]);
+    mesh(new THREE.BoxGeometry(.88, .11, .08), accentMaterial, headRig, [0, 1.91, -.37]);
+  } else {
+    mesh(new THREE.TorusGeometry(.48, .14, 8, 20, Math.PI*1.45), clothing, headRig, [0, 1.72, -.05], [0,0,.8]);
   }
-  for (const part of [chairBack, chairSeat, torso, neck, head, hair]) {
-    part.castShadow = true;
-    seat.add(part);
+
+  const setupArm = (side, armRig, handRig) => {
+    armRig.position.set(side * .56, .84, -.02);
+    mesh(new THREE.CylinderGeometry(.15, .18, .76, 10), clothing, armRig, [0, -.3, -.18], [Math.PI/3.2, 0, side*.12]);
+    handRig.position.set(side * .68, .05, -.92);
+    mesh(new THREE.CylinderGeometry(.12, .14, .62, 10), clothing, handRig, [0, .2, .18], [Math.PI/2.6,0,side*.12]);
+    mesh(new THREE.SphereGeometry(.17, 12, 9), skin, handRig, [0, -.05, -.05], [0,0,0], [1.05,.72,1.2]);
+    body.add(armRig, handRig);
+  };
+  setupArm(-1, leftArm, leftHand);
+  setupArm(1, rightArm, rightHand);
+  for (const side of [-1,1]) {
+    mesh(new THREE.CylinderGeometry(.2, .22, .92, 10), clothing, body, [side*.34, -.66, .25], [Math.PI/2.25,0,0]);
+    mesh(new THREE.BoxGeometry(.36, .26, .72), black, body, [side*.34, -1.05, -.25]);
   }
+  seat.add(chairBack, chairSeat, body, headRig);
   const activeRing = new THREE.Mesh(new THREE.TorusGeometry(.9, .035, 8, 32), new THREE.MeshStandardMaterial({ color: 0xd7ff3f, emissive: 0x728a1d, emissiveIntensity: 2, transparent: true, opacity: .8 }));
   activeRing.rotation.x = Math.PI / 2;
   activeRing.position.y = -.73;
   activeRing.visible = false;
   seat.add(activeRing);
   seat.userData.activeRing = activeRing;
+  seat.userData.body = body;
+  seat.userData.head = headRig;
+  seat.userData.leftArm = leftArm;
+  seat.userData.rightArm = rightArm;
+  seat.userData.leftHand = leftHand;
+  seat.userData.rightHand = rightHand;
+  seat.userData.hit = 0;
+  seat.userData.action = 0;
+  seat.userData.baseAngle = 0;
   seat.userData.label = null;
   seat.userData.labelName = "";
+  return seat;
+}
+
+for (let i = 0; i < 6; i += 1) {
+  const angle = i / 6 * Math.PI * 2 + Math.PI / 2;
+  const seat = makeCharacter(i);
   seat.position.set(Math.cos(angle) * 5.75, -1.08, Math.sin(angle) * 5.75);
   seat.rotation.y = -angle + Math.PI / 2;
+  seat.userData.baseAngle = seat.rotation.y;
   seat.visible = false;
   scene.add(seat);
   seats.push(seat);
@@ -557,6 +676,7 @@ function syncSeats(players) {
 
 function setHoveredTarget(playerId) {
   hoveredPlayerId = playerId;
+  ui.reticle.classList.toggle("hidden", !playerId);
   seats.forEach((seat, index) => {
     const id = state?.players[index]?.id;
     seat.userData.activeRing.visible = id === state?.currentPlayerId || id === hoveredPlayerId;
@@ -572,6 +692,7 @@ let shotLockUntil = 0;
 let gunRecoil = 0;
 let pumpAction = 0;
 let muzzleEnergy = 0;
+let cameraShake = 0;
 
 function aimGunAt(playerId) {
   const index = state?.players.findIndex((player) => player.id === playerId) ?? -1;
@@ -609,11 +730,16 @@ function animateShot(result) {
   pumpAction = 1;
   gun.rotation.z -= .2;
   setTimeout(() => { gun.rotation.z = .04; }, 170);
+  const actorIndex = state?.players.findIndex((player) => player.id === result.actorId) ?? -1;
+  const targetIndex = state?.players.findIndex((player) => player.id === result.targetId) ?? -1;
+  if (seats[actorIndex]) seats[actorIndex].userData.action = 1;
+  if (seats[targetIndex]) seats[targetIndex].userData.hit = result.shell === "live" ? 1 : .35;
   if (result.shell === "live") {
     ui.flash.classList.remove("fire");
     void ui.flash.offsetWidth;
     ui.flash.classList.add("fire");
     muzzleEnergy = 1;
+    cameraShake = 1;
     playTone(85, .42, "sawtooth", .15);
   } else {
     playTone(160, .08, "square", .045);
@@ -630,8 +756,13 @@ function animateItem({ item }) {
 const clock = new THREE.Clock();
 function frame() {
   const time = clock.getElapsedTime();
-  camera.position.lerp(desiredCamera, .025);
-  camera.lookAt(0, -.25, 0);
+  cameraShake *= .84;
+  const cinematicCamera = desiredCamera.clone();
+  cinematicCamera.x += Math.sin(time * .12) * .28 + (Math.random() - .5) * cameraShake * .18;
+  cinematicCamera.y += Math.sin(time * .17) * .08 + (Math.random() - .5) * cameraShake * .12;
+  cinematicCamera.z += Math.cos(time * .12) * .2;
+  camera.position.lerp(cinematicCamera, .022);
+  camera.lookAt(0, -.18, -.15);
   if (performance.now() > shotLockUntil && pendingGunPlayerId) aimGunAt(pendingGunPlayerId);
   const yawDelta = Math.atan2(Math.sin(desiredGunYaw - gun.rotation.y), Math.cos(desiredGunYaw - gun.rotation.y));
   gun.rotation.y += yawDelta * .075;
@@ -646,14 +777,30 @@ function frame() {
   muzzleLight.intensity = muzzleEnergy * 85;
   seats.forEach((seat, index) => {
     if (!seat.visible) return;
-    const active = state?.players[index]?.id === state?.currentPlayerId;
-    seat.position.y = -1.08 + Math.sin(time * 1.15 + index) * (active ? .035 : .012);
+    const player = state?.players[index];
+    const active = player?.id === state?.currentPlayerId;
+    seat.userData.hit *= .88;
+    seat.userData.action *= .9;
+    const breath = Math.sin(time * 1.15 + index);
+    seat.position.y = -1.08 + breath * (active ? .035 : .012);
+    seat.rotation.z = (player?.alive ? 0 : -.2) + seat.userData.hit * (index % 2 ? .16 : -.16);
+    seat.userData.body.scale.y = 1 + breath * .012;
+    seat.userData.body.rotation.x += ((active ? -.055 : 0) - seat.userData.body.rotation.x) * .055;
+    seat.userData.head.rotation.y = Math.sin(time * .47 + index) * .055;
+    seat.userData.head.rotation.x += ((active ? -.05 : .02) + seat.userData.hit * .25 - seat.userData.head.rotation.x) * .08;
+    seat.userData.leftArm.rotation.x = seat.userData.action * -.42;
+    seat.userData.rightArm.rotation.x = seat.userData.action * -.42;
+    seat.userData.leftHand.rotation.x = seat.userData.action * -.28;
+    seat.userData.rightHand.rotation.x = seat.userData.action * -.28;
     if (seat.userData.activeRing) seat.userData.activeRing.rotation.z = time * .7;
   });
   const itemPulse = performance.now() < itemPulseUntil ? 1 + Math.sin(time * 28) * .12 : 1;
   itemProps.scale.setScalar(itemPulse);
   itemProps.children.forEach((prop, index) => { prop.rotation.y += .003 * (index % 2 ? 1 : -1); });
   dust.rotation.y = time * .008;
+  fan.rotation.z = time * 1.35;
+  monitorScreen.material.emissiveIntensity = 1.75 + Math.sin(time * 7.4) * .18 + Math.sin(time * 19.1) * .08;
+  warningSprite.material.opacity = .82 + Math.sin(time * 5.3) * .12;
   keyLight.intensity = 92 + Math.sin(time * 2.1) * 4 + Math.sin(time * 7.7) * 2;
   renderer.render(scene, camera);
   requestAnimationFrame(frame);

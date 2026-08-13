@@ -2,6 +2,8 @@
 
 Arkadaşlarınla tarayıcıdan oynayabileceğin, 2–6 kişilik gerçek zamanlı 3B masa gerilim oyunu. Mekanik olarak şans, hedef seçimi ve ekipman kullanımını birleştirir; bütün kodlar, 3B modeller ve görsel kimlik bu proje için özgün hazırlanmıştır.
 
+Her oyuncu masada farklı yüz, beden, kıyafet ve aksesuarları olan animasyonlu bir 3B karakterle temsil edilir. Pompalı sıradaki oyuncuya ve seçilen hedefe fiziksel olarak döner; karakterler nefes alma, sıra, ateş ve darbe tepkileri verir.
+
 ## Oyuncular nasıl katılır?
 
 1. Bir oyuncu **Yeni Oda Kur** düğmesine basar.
