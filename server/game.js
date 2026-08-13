@@ -314,6 +314,8 @@ export class GameRoom {
     let privateMessage = null;
     let consumeItem = true;
     let loadNextRoundAfterConsumption = false;
+    let animationTargetId = null;
+    let animationShell = null;
     const maxHealth = CHARACTER_RULES[actor.character].maxHealth;
 
     if (item === "cigarettes") {
@@ -331,6 +333,7 @@ export class GameRoom {
     } else if (item === "beer") {
       const removed = this.magazine.shift();
       if (!removed) throw new Error("Hazne zaten boş.");
+      animationShell = removed;
       privateMessage = removed === "live" ? "Dolu fişeği çıkardın." : "Boş fişeği çıkardın.";
       if (actor.character === "mariner" && actor.health < maxHealth) {
         actor.health += 1;
@@ -341,6 +344,7 @@ export class GameRoom {
     } else if (item === "handcuffs") {
       const target = this.nextAlive(actor.id, false);
       if (!target || target.id === actor.id) throw new Error("Kelepçelenecek rakip yok.");
+      animationTargetId = target.id;
       target.skipTurns += 1;
       this.lastAction = `${actor.name}, ${target.name} oyuncusunu kelepçeledi.`;
     } else if (item === "handsaw") {
@@ -366,6 +370,7 @@ export class GameRoom {
         return { privateMessage, used: false };
       }
       const victim = victims[crypto.randomInt(victims.length)];
+      animationTargetId = victim.id;
       const stolenIndex = crypto.randomInt(victim.items.length);
       const [stolen] = victim.items.splice(stolenIndex, 1);
       actor.items.push(stolen);
@@ -390,7 +395,7 @@ export class GameRoom {
       this.turnDeadline = this.roundReadyAt + TURN_DURATION_MS;
     }
     this.updatedAt = now;
-    return { privateMessage, used: true, consumed: consumeItem };
+    return { privateMessage, used: true, consumed: consumeItem, animationTargetId, animationShell };
   }
 
   disconnect(socketId, now = Date.now()) {

@@ -1,7 +1,70 @@
 import * as THREE from "/vendor/three/three.module.js";
+import { GLTFLoader } from "/vendor/three-addons/loaders/GLTFLoader.js";
 import { CHARACTER_RULES } from "/shared/characters.js?v=20260813-characters-v1";
 import { resolveAimTarget } from "/shared/aiming.js?v=20260813-aiming-v2";
 import { ITEM_SLOT_POSITIONS, ITEM_TRAY_RADIUS, SEAT_RADIUS, firstPersonViewForPlayer, itemTrayAngle, playerSeatAngle, playerSeatSlot, radialPoint, seatAngle } from "/shared/table-layout.js?v=20260813-fps-layout-v1";
+
+function showBlenderAssetFailure() {
+  if (document.querySelector("[data-asset-failure]")) return;
+  document.getElementById("asset-loader")?.remove();
+  const failure = document.createElement("div");
+    failure.dataset.assetFailure = "true";
+    failure.setAttribute("role", "alert");
+    failure.style.cssText = "position:fixed;inset:0;z-index:100001;display:grid;place-content:center;gap:16px;padding:32px;text-align:center;background:#06100f;color:#eee8dc;font:600 16px Manrope,sans-serif";
+    failure.innerHTML = "<strong style='font:700 32px Archivo Black,sans-serif'>3B SAHNE UYANAMADI</strong><span>Blender varlıkları yüklenemedi. Bağlantını kontrol edip yeniden dene.</span><button style='margin:auto;padding:14px 24px;border:1px solid #d7ff3f;background:#d7ff3f;color:#07100e;font-weight:800'>YENİDEN DENE</button>";
+    failure.querySelector("button").addEventListener("click", () => location.reload());
+    document.body.append(failure);
+}
+
+async function loadBlenderAssetKit() {
+  try {
+    return await new GLTFLoader().loadAsync("/assets/last-chamber-kit.glb?v=20260813-blender-v2");
+  } catch (error) {
+    showBlenderAssetFailure();
+    throw error;
+  }
+}
+
+const assetKit = await loadBlenderAssetKit();
+const assetTemplates = { characters: new Map(), items: new Map(), shotgun: null };
+assetKit.scene.children.forEach((root) => {
+  if (root.userData.asset_kind === "character") assetTemplates.characters.set(root.userData.character_id, root);
+  if (root.userData.asset_kind === "item") assetTemplates.items.set(root.userData.item_type, root);
+  if (root.userData.asset_kind === "shotgun") assetTemplates.shotgun = root;
+});
+if (!assetTemplates.shotgun || assetTemplates.characters.size !== 6 || assetTemplates.items.size !== 9) {
+  showBlenderAssetFailure();
+  throw new Error("Blender varlık seti eksik veya bozuk.");
+}
+const requiredCharacterRoles = ["body", "head", "leftArm", "rightArm", "leftHand", "rightHand"];
+const requiredShotgunRoles = ["barrelAssembly", "pump", "bolt", "muzzle", "leftGrip", "rightGrip"];
+const assetContractValid = [...assetTemplates.characters.values()].every((root) => requiredCharacterRoles.every((role) => findAssetRole(root, role)))
+  && requiredShotgunRoles.every((role) => findAssetRole(assetTemplates.shotgun, role));
+if (!assetContractValid) {
+  showBlenderAssetFailure();
+  throw new Error("Blender animasyon rolleri eksik veya bozuk.");
+}
+document.getElementById("asset-loader")?.remove();
+
+function cloneBlenderAsset(template, scale = 1) {
+  const clone = template.clone(true);
+  clone.scale.setScalar(scale);
+  clone.traverse((object) => {
+    if (!object.isMesh) return;
+    object.castShadow = true;
+    object.receiveShadow = true;
+    object.frustumCulled = true;
+  });
+  return clone;
+}
+
+function findAssetRole(root, role) {
+  let match = null;
+  root.traverse((object) => {
+    if (!match && object.userData.lc_role === role) match = object;
+  });
+  return match;
+}
 
 const $ = (selector) => document.querySelector(selector);
 const socket = window.io({ transports: ["websocket", "polling"] });
@@ -277,6 +340,7 @@ function renderState() {
     const current = state.players.find((player) => player.id === state.currentPlayerId);
     const myTurn = state.currentPlayerId === state.viewerId;
     const loading = isRoundLoading();
+    const animationLocked = isItemAnimationLocked();
     ui.turnKicker.textContent = loading ? `HAZNE ${state.round} YÜKLENİYOR` : (myTurn ? "SIRA SENDE" : `${current?.name ?? "—"} OYNUYOR`);
     ui.turnTitle.textContent = loading ? "FİŞEKLERİ HATIRLA" : (myTurn ? "HEDEFİNİ SEÇ" : "MASAYI İZLE");
     ui.lastAction.textContent = state.lastAction;
@@ -295,7 +359,7 @@ function renderState() {
     else if (!myTurn) selectedTargetId = null;
     const displayedTargetId = myTurn ? selectedTargetId : state.aimTargetId;
     ui.targetList.innerHTML = state.players.filter((player) => player.alive).map((player) =>
-      `<button class="target-button ${player.id === state.viewerId ? "self" : ""} ${player.id === displayedTargetId ? "selected" : ""}" data-target="${player.id}" aria-pressed="${player.id === displayedTargetId}" aria-label="Hedef seç: ${player.id === state.viewerId ? "kendin" : escapeHtml(player.name)}" ${myTurn && !loading ? "" : "disabled"}>${player.id === state.viewerId ? "KENDİNE" : escapeHtml(player.name)}</button>`
+      `<button class="target-button ${player.id === state.viewerId ? "self" : ""} ${player.id === displayedTargetId ? "selected" : ""}" data-target="${player.id}" aria-pressed="${player.id === displayedTargetId}" aria-label="Hedef seç: ${player.id === state.viewerId ? "kendin" : escapeHtml(player.name)}" ${myTurn && !loading && !animationLocked ? "" : "disabled"}>${player.id === state.viewerId ? "KENDİNE" : escapeHtml(player.name)}</button>`
     ).join("");
     ui.targetList.querySelectorAll("button").forEach((button) => {
       button.addEventListener("pointerenter", () => setHoveredTarget(button.dataset.target));
@@ -309,7 +373,7 @@ function renderState() {
       const info = itemInfo[item] ?? { name: item, mark: "·", description: item };
       const usable = canUseItem(item, me);
       const description = item === "adrenaline" && !usable ? "Rakiplerde çalınabilecek ekipman yok." : info.description;
-      return `<button class="item-button ${usable ? "" : "unavailable"}" data-item="${item}" title="${description}" ${myTurn && usable && !loading ? "" : "disabled"}><i>${info.mark}</i><span>${info.name}</span></button>`;
+      return `<button class="item-button ${usable ? "" : "unavailable"}" data-item="${item}" title="${description}" ${myTurn && usable && !loading && !animationLocked ? "" : "disabled"}><i>${info.mark}</i><span>${info.name}</span></button>`;
     }).join("") || "<span class='micro'>EKİPMAN YOK</span>";
     ui.itemList.querySelectorAll("button").forEach((button) => button.addEventListener("click", () => {
       socket.emit("game:item", { item: button.dataset.item });
@@ -416,7 +480,7 @@ function canUseItem(item, me = state?.players.find((player) => player.id === sta
 }
 
 function restoreActions() {
-  if (!state || state.phase !== "playing" || state.currentPlayerId !== state.viewerId || isRoundLoading()) return;
+  if (!state || state.phase !== "playing" || state.currentPlayerId !== state.viewerId || isRoundLoading() || isItemAnimationLocked()) return;
   ui.targetList.querySelectorAll("button").forEach((button) => { button.disabled = false; });
   ui.itemList.querySelectorAll("button").forEach((button) => {
     button.disabled = !canUseItem(button.dataset.item);
@@ -456,6 +520,7 @@ function updateTargetControls() {
   if (!state || state.phase !== "playing") return;
   const myTurn = state.currentPlayerId === state.viewerId;
   const loading = isRoundLoading();
+  const animationLocked = isItemAnimationLocked();
   const target = state.players.find((player) => player.id === selectedTargetId && player.alive);
   const observedTarget = state.players.find((player) => player.id === state.aimTargetId && player.alive);
   const displayedTargetId = myTurn ? selectedTargetId : observedTarget?.id;
@@ -466,7 +531,7 @@ function updateTargetControls() {
     : (observedTarget
         ? `${current?.name ?? "—"} → ${targetName(observedTarget.id)}`.toLocaleUpperCase("tr-TR")
         : `${current?.name ?? "—"} HEDEF SEÇİYOR`);
-  ui.fire.disabled = loading || !myTurn || !target;
+  ui.fire.disabled = loading || animationLocked || !myTurn || !target;
   ui.fireLabel.textContent = target ? `ATEŞ ET: ${target.id === state.viewerId ? "KENDİNE" : target.name.toLocaleUpperCase("tr-TR")}` : "TETİK KİLİTLİ";
   ui.targetList.querySelectorAll("button").forEach((button) => {
     const selected = button.dataset.target === displayedTargetId;
@@ -477,7 +542,7 @@ function updateTargetControls() {
 }
 
 function selectTarget(playerId) {
-  if (!state || state.phase !== "playing" || state.currentPlayerId !== state.viewerId || isRoundLoading()) return;
+  if (!state || state.phase !== "playing" || state.currentPlayerId !== state.viewerId || isRoundLoading() || isItemAnimationLocked()) return;
   const target = state.players.find((player) => player.id === playerId && player.alive);
   if (!target) return;
   selectedTargetId = target.id;
@@ -490,7 +555,7 @@ function selectTarget(playerId) {
 }
 
 function fireSelectedTarget() {
-  if (!state || state.phase !== "playing" || state.currentPlayerId !== state.viewerId || isRoundLoading()) return;
+  if (!state || state.phase !== "playing" || state.currentPlayerId !== state.viewerId || isRoundLoading() || isItemAnimationLocked()) return;
   const target = state.players.find((player) => player.id === selectedTargetId && player.alive);
   if (!target) return showToast("Önce namlunun çevrileceği hedefi seç.", true);
   shotTargetId = target.id;
@@ -517,14 +582,14 @@ setInterval(() => {
   ui.timerBar.style.width = `${Math.min(100, (remaining / 30_000) * 100)}%`;
 }, 200);
 
-// Procedural Three.js table and characters. Every seat is rebuilt from the server-authoritative identity.
+// The room remains lightweight Three.js geometry; characters, shotgun and equipment come from the Blender kit.
 const renderer = new THREE.WebGLRenderer({ canvas: $("#scene"), antialias: true, alpha: false, powerPreference: "high-performance" });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 1.8));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.42;
+renderer.toneMappingExposure = 1.02;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x06100f);
@@ -533,23 +598,23 @@ const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, .1, 100
 camera.position.set(8.6, 7.1, 10.8);
 camera.lookAt(0, -.2, 0);
 
-scene.add(new THREE.HemisphereLight(0xb9d9cf, 0x020403, 1.65));
-scene.add(new THREE.AmbientLight(0x789e94, 1.55));
-const keyLight = new THREE.SpotLight(0xd9eadf, 310, 36, Math.PI / 3.7, .7, 1.2);
+scene.add(new THREE.HemisphereLight(0x8aa9a0, 0x010202, .72));
+scene.add(new THREE.AmbientLight(0x536b65, .42));
+const keyLight = new THREE.SpotLight(0xe2d4bb, 168, 36, Math.PI / 3.7, .7, 1.2);
 keyLight.position.set(-3, 10, 4);
 keyLight.castShadow = true;
 keyLight.shadow.mapSize.set(2048, 2048);
 keyLight.shadow.bias = -.00018;
 keyLight.shadow.normalBias = .025;
 scene.add(keyLight);
-const fillLight = new THREE.SpotLight(0x6fb8b0, 165, 30, Math.PI / 2.8, .82, 1.15);
+const fillLight = new THREE.SpotLight(0x467f79, 68, 30, Math.PI / 2.8, .82, 1.15);
 fillLight.position.set(8, 7, 6);
 fillLight.target.position.set(0, 0, 0);
 scene.add(fillLight, fillLight.target);
-const rimLight = new THREE.PointLight(0xb8653c, 92, 20, 2);
+const rimLight = new THREE.PointLight(0xc05b39, 78, 20, 2);
 rimLight.position.set(-5, 3.5, -2.5);
 scene.add(rimLight);
-const clinicalLight = new THREE.PointLight(0x4da89b, 82, 18, 2);
+const clinicalLight = new THREE.PointLight(0x397d75, 44, 18, 2);
 clinicalLight.position.set(5, 3, -4);
 scene.add(clinicalLight);
 
@@ -780,223 +845,19 @@ function makeSurfaceTexture(kind, repeatX, repeatY) {
   return texture;
 }
 
-function makeGunDecal(text) {
-  const canvas = document.createElement("canvas");
-  canvas.width = 512;
-  canvas.height = 96;
-  const context = canvas.getContext("2d");
-  context.clearRect(0, 0, canvas.width, canvas.height);
-  context.fillStyle = "rgba(225,220,197,.78)";
-  context.font = "700 38px monospace";
-  context.textAlign = "center";
-  context.textBaseline = "middle";
-  context.fillText(text, 256, 48);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false, side: THREE.DoubleSide });
-}
-
 const gun = new THREE.Group();
-const metalTexture = makeSurfaceTexture("metal");
-const woodTexture = makeSurfaceTexture("wood");
-const darkMetal = new THREE.MeshPhysicalMaterial({ color: 0x242a28, map: metalTexture, roughness: .19, metalness: .96, clearcoat: .22, clearcoatRoughness: .38 });
-const wornMetal = new THREE.MeshPhysicalMaterial({ color: 0x777b76, map: metalTexture, roughness: .26, metalness: .9, clearcoat: .18, clearcoatRoughness: .42 });
-const gunBlack = new THREE.MeshPhysicalMaterial({ color: 0x090c0b, roughness: .38, metalness: .78, clearcoat: .12 });
-const wood = new THREE.MeshPhysicalMaterial({ color: 0x734024, map: woodTexture, roughness: .38, metalness: .02, clearcoat: .48, clearcoatRoughness: .31 });
-const woodDark = new THREE.MeshPhysicalMaterial({ color: 0x421f14, map: woodTexture, roughness: .5, metalness: .02, clearcoat: .34, clearcoatRoughness: .4 });
-const brassDetail = new THREE.MeshStandardMaterial({ color: 0x9a793d, roughness: .34, metalness: .72 });
-
-const barrelAssembly = new THREE.Group();
-barrelAssembly.position.set(-1.03, .03, 0);
-const barrel = new THREE.Mesh(new THREE.CylinderGeometry(.18, .205, 3.8, 24), darkMetal);
-barrel.rotation.z = Math.PI / 2;
-barrel.position.set(1.9, .13, 0);
-barrelAssembly.add(barrel);
-const magazineTube = new THREE.Mesh(new THREE.CylinderGeometry(.135, .15, 3.18, 20), gunBlack);
-magazineTube.rotation.z = Math.PI / 2;
-magazineTube.position.set(1.53, -.2, 0);
-barrelAssembly.add(magazineTube);
-const barrelRib = new THREE.Mesh(new THREE.BoxGeometry(3.35, .055, .13), wornMetal);
-barrelRib.position.set(1.69, .335, 0);
-barrelAssembly.add(barrelRib);
-const frontSight = new THREE.Mesh(new THREE.SphereGeometry(.075, 12, 8), brassDetail);
-frontSight.position.set(3.52, .405, 0);
-barrelAssembly.add(frontSight);
-const muzzle = new THREE.Mesh(new THREE.TorusGeometry(.19, .04, 10, 24), wornMetal);
-muzzle.rotation.y = Math.PI / 2;
-muzzle.position.set(3.8, .13, 0);
-barrelAssembly.add(muzzle);
-const magazineCap = new THREE.Mesh(new THREE.CylinderGeometry(.17, .17, .12, 18), wornMetal);
-magazineCap.rotation.z = Math.PI / 2;
-magazineCap.position.set(3.14, -.2, 0);
-barrelAssembly.add(magazineCap);
-const barrelClamp = new THREE.Mesh(new THREE.BoxGeometry(.13, .48, .4), wornMetal);
-barrelClamp.position.set(2.75, -.02, 0);
-barrelAssembly.add(barrelClamp);
-const chamberCollar = new THREE.Mesh(new THREE.CylinderGeometry(.235, .255, .34, 24), wornMetal);
-chamberCollar.rotation.z = Math.PI / 2;
-chamberCollar.position.set(.12, .11, 0);
-barrelAssembly.add(chamberCollar);
-const chamberBand = new THREE.Mesh(new THREE.TorusGeometry(.242, .026, 10, 24), darkMetal);
-chamberBand.rotation.y = Math.PI / 2;
-chamberBand.position.set(.28, .11, 0);
-barrelAssembly.add(chamberBand);
-const muzzleBore = new THREE.Mesh(new THREE.CircleGeometry(.155, 24), gunBlack);
-muzzleBore.rotation.y = Math.PI / 2;
-muzzleBore.position.set(3.806, .13, 0);
-barrelAssembly.add(muzzleBore);
-gun.add(barrelAssembly);
-
-const pump = new THREE.Group();
-pump.position.set(.35, -.17, 0);
-const pumpBody = new THREE.Mesh(new THREE.CylinderGeometry(.31, .34, 1.18, 16), woodDark);
-pumpBody.rotation.z = Math.PI / 2;
-pump.add(pumpBody);
-for (const end of [-.58, .58]) {
-  const ferrule = new THREE.Mesh(new THREE.TorusGeometry(.325, .025, 8, 20), darkMetal);
-  ferrule.rotation.y = Math.PI / 2;
-  ferrule.position.x = end;
-  pump.add(ferrule);
-}
-for (let x = -.46; x <= .46; x += .185) {
-  const rib = new THREE.Mesh(new THREE.TorusGeometry(.345, .018, 7, 18), wood);
-  rib.rotation.y = Math.PI / 2;
-  rib.position.x = x;
-  pump.add(rib);
-}
-gun.add(pump);
-
-const receiverShape = new THREE.Shape();
-receiverShape.moveTo(-.66, -.35);
-receiverShape.lineTo(-.58, .34);
-receiverShape.lineTo(.48, .39);
-receiverShape.lineTo(.66, .23);
-receiverShape.lineTo(.62, -.28);
-receiverShape.lineTo(.43, -.38);
-receiverShape.closePath();
-const receiverGeometry = new THREE.ExtrudeGeometry(receiverShape, { depth: .64, bevelEnabled: true, bevelSegments: 3, bevelSize: .045, bevelThickness: .045 });
-receiverGeometry.translate(0, 0, -.32);
-const receiver = new THREE.Mesh(receiverGeometry, wornMetal);
-receiver.position.set(-1.67, -.02, 0);
-gun.add(receiver);
-const receiverTop = new THREE.Mesh(new THREE.BoxGeometry(1.22, .1, .5), darkMetal);
-receiverTop.position.set(-1.62, .42, 0);
-gun.add(receiverTop);
-const ejectionPort = new THREE.Mesh(new THREE.BoxGeometry(.55, .27, .025), gunBlack);
-ejectionPort.position.set(-1.42, .08, .365);
-gun.add(ejectionPort);
-for (const [x, y, width, height] of [[-1.42, .235, .64, .035], [-1.42, -.075, .64, .035], [-1.755, .08, .035, .275], [-1.085, .08, .035, .275]]) {
-  const portEdge = new THREE.Mesh(new THREE.BoxGeometry(width, height, .035), darkMetal);
-  portEdge.position.set(x, y, .382);
-  gun.add(portEdge);
-}
-const actionBolt = new THREE.Group();
-const exposedBolt = new THREE.Mesh(new THREE.BoxGeometry(.39, .16, .022), wornMetal);
-exposedBolt.position.set(-1.51, .08, .382);
-actionBolt.add(exposedBolt);
-const boltHandle = new THREE.Mesh(new THREE.SphereGeometry(.075, 16, 10), darkMetal);
-boltHandle.position.set(-1.2, .03, .43);
-actionBolt.add(boltHandle);
-const extractor = new THREE.Mesh(new THREE.BoxGeometry(.13, .035, .035), gunBlack);
-extractor.position.set(-1.32, .12, .405);
-actionBolt.add(extractor);
-gun.add(actionBolt);
-const loadingPort = new THREE.Mesh(new THREE.BoxGeometry(.58, .025, .33), gunBlack);
-loadingPort.position.set(-1.48, -.42, 0);
-gun.add(loadingPort);
-const carrier = new THREE.Mesh(new THREE.BoxGeometry(.48, .018, .24), brassDetail);
-carrier.position.set(-1.47, -.438, 0);
-gun.add(carrier);
-const rearSight = new THREE.Mesh(new THREE.BoxGeometry(.16, .105, .25), gunBlack);
-rearSight.position.set(-1.05, .51, 0);
-gun.add(rearSight);
-const rearSightNotch = new THREE.Mesh(new THREE.BoxGeometry(.055, .12, .07), wornMetal);
-rearSightNotch.position.set(-1.02, .55, 0);
-gun.add(rearSightNotch);
-for (const x of [-1.92, -1.5]) {
-  const pin = new THREE.Mesh(new THREE.CylinderGeometry(.045, .045, .025, 12), gunBlack);
-  pin.rotation.x = Math.PI / 2;
-  pin.position.set(x, -.1, .37);
-  gun.add(pin);
-}
-const safety = new THREE.Mesh(new THREE.CylinderGeometry(.055, .055, .78, 14), new THREE.MeshStandardMaterial({ color: 0x7f1d17, roughness: .35, metalness: .35 }));
-safety.rotation.x = Math.PI / 2;
-safety.position.set(-1.92, -.26, 0);
-gun.add(safety);
-for (const side of [-1, 1]) {
-  const decal = new THREE.Mesh(new THREE.PlaneGeometry(.82, .16), makeGunDecal("12 GA · LC-06"));
-  decal.position.set(-1.68, .22, side * .356);
-  decal.rotation.y = side < 0 ? Math.PI : 0;
-  gun.add(decal);
-}
-for (const x of [-2.08, -1.78, -1.25]) {
-  const screw = new THREE.Mesh(new THREE.CylinderGeometry(.052, .052, .02, 16), gunBlack);
-  screw.rotation.x = Math.PI / 2;
-  screw.position.set(x, .08, .374);
-  gun.add(screw);
-  const slot = new THREE.Mesh(new THREE.BoxGeometry(.075, .012, .012), wornMetal);
-  slot.position.set(x, .08, .387);
-  gun.add(slot);
-}
-
-const stockShape = new THREE.Shape();
-stockShape.moveTo(-1.38, -.43);
-stockShape.lineTo(-1.42, .36);
-stockShape.quadraticCurveTo(-.62, .45, .1, .27);
-stockShape.lineTo(1.15, .1);
-stockShape.lineTo(1.18, -.22);
-stockShape.quadraticCurveTo(.2, -.28, -.46, -.5);
-stockShape.closePath();
-const stockGeometry = new THREE.ExtrudeGeometry(stockShape, { depth: .69, bevelEnabled: true, bevelSegments: 3, bevelSize: .055, bevelThickness: .055 });
-stockGeometry.translate(0, 0, -.345);
-const stock = new THREE.Mesh(stockGeometry, wood);
-stock.rotation.z = -.035;
-stock.position.set(-3.43, -.12, 0);
-gun.add(stock);
-const cheekRest = new THREE.Mesh(new THREE.BoxGeometry(1.25, .13, .58), woodDark);
-cheekRest.position.set(-3.08, .16, 0);
-cheekRest.rotation.z = -.08;
-gun.add(cheekRest);
-const buttPlate = new THREE.Mesh(new THREE.BoxGeometry(.14, .86, .82), gunBlack);
-buttPlate.position.set(-4.72, -.25, 0);
-buttPlate.rotation.z = -.07;
-gun.add(buttPlate);
-for (let y = -.54; y <= .08; y += .14) {
-  const groove = new THREE.Mesh(new THREE.BoxGeometry(.025, .025, .72), wornMetal);
-  groove.position.set(-4.8, y, 0);
-  groove.rotation.z = -.07;
-  gun.add(groove);
-}
-const grip = new THREE.Mesh(new THREE.CylinderGeometry(.24, .31, 1.18, 18), woodDark);
-grip.position.set(-2.13, -.73, 0);
-grip.rotation.z = -.26;
-gun.add(grip);
-for (const side of [-1, 1]) {
-  for (let row = 0; row < 5; row += 1) {
-    const checkering = new THREE.Mesh(new THREE.BoxGeometry(.58, .018, .012), woodDark);
-    checkering.position.set(-3.66 + row * .13, -.18 + row * .035, side * .357);
-    checkering.rotation.set(0, side < 0 ? Math.PI : 0, .55);
-    gun.add(checkering);
-  }
-  const actionBar = new THREE.Mesh(new THREE.BoxGeometry(1.7, .045, .035), wornMetal);
-  actionBar.position.set(-.2, -.24, side * .17);
-  gun.add(actionBar);
-}
-const triggerGuard = new THREE.Mesh(new THREE.TorusGeometry(.31, .052, 10, 20, Math.PI * 1.45), darkMetal);
-triggerGuard.rotation.set(Math.PI / 2, 0, -.58);
-triggerGuard.position.set(-1.58, -.55, 0);
-gun.add(triggerGuard);
-const trigger = new THREE.Mesh(new THREE.BoxGeometry(.05, .34, .08), brassDetail);
-trigger.position.set(-1.62, -.57, 0);
-trigger.rotation.z = -.25;
-gun.add(trigger);
-const slingLoop = new THREE.Mesh(new THREE.TorusGeometry(.13, .025, 8, 20), wornMetal);
-slingLoop.rotation.x = Math.PI / 2;
-slingLoop.position.set(-4.2, -.63, 0);
-gun.add(slingLoop);
-gun.traverse((object) => {
-  if (object.isMesh) object.castShadow = object.receiveShadow = true;
-});
+const blenderShotgun = cloneBlenderAsset(assetTemplates.shotgun);
+gun.add(blenderShotgun);
+let barrelAssembly = findAssetRole(blenderShotgun, "barrelAssembly");
+let pump = findAssetRole(blenderShotgun, "pump");
+let actionBolt = findAssetRole(blenderShotgun, "bolt");
+let muzzle = findAssetRole(blenderShotgun, "muzzle");
+const carrier = new THREE.Group();
+carrier.position.set(-.65, -.44, 0);
+blenderShotgun.add(carrier);
+if (![barrelAssembly, pump, actionBolt, muzzle].every(Boolean)) throw new Error("Pompalı animasyon rolleri eksik.");
+const pumpRestX = pump.position.x;
+const boltRestX = actionBolt.position.x;
 const muzzleLight = new THREE.PointLight(0xffb14a, 0, 6, 2);
 muzzleLight.position.set(2.95, .15, 0);
 gun.add(muzzleLight);
@@ -1005,6 +866,35 @@ gun.scale.setScalar(.62);
 gun.rotation.y = 0;
 gun.rotation.z = .04;
 scene.add(gun);
+
+const viewerHands = new THREE.Group();
+let viewerHandsCharacterId = null;
+let viewerLeftHand = null;
+let viewerRightHand = null;
+scene.add(viewerHands);
+
+function ensureViewerHands(characterId) {
+  if (viewerHandsCharacterId === characterId) return;
+  viewerHands.clear();
+  const template = assetTemplates.characters.get(characterId);
+  const leftTemplate = template && findAssetRole(template, "leftHand");
+  const rightTemplate = template && findAssetRole(template, "rightHand");
+  if (!leftTemplate || !rightTemplate) return;
+  viewerLeftHand = cloneBlenderAsset(leftTemplate);
+  viewerRightHand = cloneBlenderAsset(rightTemplate);
+  for (const hand of [viewerLeftHand, viewerRightHand]) {
+    hand.position.set(0, 0, 0);
+    hand.scale.setScalar(1.28);
+    hand.traverse((object) => {
+      if (!object.isMesh) return;
+      object.position.set(0, 0, 0);
+      object.quaternion.identity();
+      object.scale.setScalar(1);
+    });
+  }
+  viewerHands.add(viewerLeftHand, viewerRightHand);
+  viewerHandsCharacterId = characterId;
+}
 
 const shells = new THREE.Group();
 const redShell = new THREE.MeshStandardMaterial({ color: 0xb3261d, roughness: .48, metalness: .05 });
@@ -1122,9 +1012,6 @@ organicContext.putImageData(organicPixels, 0, 0);
 const organicBump = new THREE.CanvasTexture(organicCanvas);
 organicBump.wrapS = organicBump.wrapT = THREE.RepeatWrapping;
 organicBump.repeat.set(3, 3);
-const characterFabricTexture = makeSurfaceTexture("fabric", 5, 5);
-const characterSkinTexture = makeSurfaceTexture("skin", 4, 4);
-const characterLeatherTexture = makeSurfaceTexture("leather", 3, 4);
 
 function makeBeveledBoxGeometry(width, height, depth, radius = .08) {
   const halfWidth = width / 2;
@@ -1145,151 +1032,18 @@ function makeBeveledBoxGeometry(width, height, depth, radius = .08) {
   return geometry;
 }
 
-function makeTorsoGeometry() {
-  const profile = [
-    new THREE.Vector2(.35, -.72), new THREE.Vector2(.5, -.58), new THREE.Vector2(.57, -.16),
-    new THREE.Vector2(.62, .28), new THREE.Vector2(.55, .62), new THREE.Vector2(.43, .72),
-    new THREE.Vector2(.28, .76)
-  ];
-  return new THREE.LatheGeometry(profile, 32);
-}
-
 function makeCharacter(characterId) {
   const profile = characterProfileById.get(characterId);
-  if (!profile) throw new Error(`Bilinmeyen 3B karakter: ${characterId}`);
-  const seat = new THREE.Group();
-  const chairMaterial = new THREE.MeshPhysicalMaterial({ color: 0x553626, map: characterLeatherTexture, bumpMap: characterLeatherTexture, bumpScale: .035, roughness: .62, clearcoat: .12, clearcoatRoughness: .55 });
-  const clothing = new THREE.MeshPhysicalMaterial({ color: profile.coat, map: characterFabricTexture, bumpMap: characterFabricTexture, bumpScale: .032, emissive: profile.coat, emissiveIntensity: .08, roughness: .78, sheen: .45, sheenColor: profile.coat });
-  const shirt = new THREE.MeshPhysicalMaterial({ color: profile.shirt, map: characterFabricTexture, bumpMap: characterFabricTexture, bumpScale: .024, emissive: profile.shirt, emissiveIntensity: .06, roughness: .84, sheen: .3, sheenColor: 0xb9aca0 });
-  const skin = new THREE.MeshPhysicalMaterial({ color: profile.skin, map: characterSkinTexture, bumpMap: characterSkinTexture, bumpScale: .026, emissive: 0x301811, emissiveIntensity: .1, roughness: .58, clearcoat: .08, clearcoatRoughness: .68, sheen: .18, sheenColor: 0xd18f78 });
-  const hairMaterial = new THREE.MeshPhysicalMaterial({ color: profile.hair, map: characterFabricTexture, bumpMap: characterFabricTexture, bumpScale: .04, roughness: .88, sheen: .25 });
-  const accentMaterial = new THREE.MeshStandardMaterial({ color: profile.accent, emissive: profile.accent, emissiveIntensity: .65, roughness: .55 });
-  const eldritchMaterial = new THREE.MeshStandardMaterial({ color: profile.eldritch, emissive: profile.eldritch, emissiveIntensity: .18, roughness: .72 });
-  const black = new THREE.MeshPhysicalMaterial({ color: 0x0c0c0b, roughness: .55, metalness: .28, clearcoat: .12 });
-  const nailMaterial = new THREE.MeshPhysicalMaterial({ color: 0xc99887, roughness: .38, clearcoat: .35, clearcoatRoughness: .28 });
-  const body = new THREE.Group();
-  const headRig = new THREE.Group();
-  const leftArm = new THREE.Group();
-  const rightArm = new THREE.Group();
-  const leftHand = new THREE.Group();
-  const rightHand = new THREE.Group();
-  const mesh = (geometry, material, parent, position = [0,0,0], rotation = [0,0,0], scale = [1,1,1]) => {
-    const part = new THREE.Mesh(geometry, material);
-    part.position.set(...position);
-    part.rotation.set(...rotation);
-    part.scale.set(...scale);
-    part.castShadow = true;
-    part.receiveShadow = true;
-    parent.add(part);
-    return part;
-  };
-  const chairBack = new THREE.Mesh(makeBeveledBoxGeometry(1.45, 2.05, .22, .16), chairMaterial);
-  chairBack.position.set(0, .2, .48);
-  const chairSeat = new THREE.Mesh(makeBeveledBoxGeometry(1.55, 1.45, .22, .18), chairMaterial);
-  chairSeat.rotation.x = Math.PI / 2;
-  chairSeat.position.set(0, -.62, -.08);
-  mesh(makeTorsoGeometry(), clothing, body, [0, .42, 0]);
-  mesh(makeBeveledBoxGeometry(.52, 1.12, .08, .09), shirt, body, [0, .48, -.57]);
-  mesh(new THREE.CapsuleGeometry(.035, .84, 5, 10), accentMaterial, body, [0, .53, -.64], [0,0,-.03]);
-  mesh(makeBeveledBoxGeometry(.38, .82, .08, .07), clothing, body, [-.23, .57, -.62], [0,0,-.2]);
-  mesh(makeBeveledBoxGeometry(.38, .82, .08, .07), clothing, body, [.23, .57, -.62], [0,0,.2]);
-  mesh(makeBeveledBoxGeometry(1.05, .12, .16, .04), black, body, [0, -.08, -.48]);
-  for (const y of [.22, .5, .78]) mesh(new THREE.SphereGeometry(.045, 10, 8), accentMaterial, body, [0, y, -.68]);
-  mesh(new THREE.SphereGeometry(.19, 24, 16), clothing, body, [-.57, .86, -.02]);
-  mesh(new THREE.SphereGeometry(.19, 24, 16), clothing, body, [.57, .86, -.02]);
-  mesh(new THREE.CapsuleGeometry(.17, .18, 8, 16), skin, headRig, [0, 1.25, -.05]);
-  const head = mesh(new THREE.SphereGeometry(.43, 36, 28), skin, headRig, [0, 1.68, -.08], [0,0,0], profile.head);
-  mesh(new THREE.CapsuleGeometry(.065, .12, 6, 14), skin, headRig, [0, 1.66, -.49], [Math.PI / 2, 0, 0]);
-  mesh(new THREE.SphereGeometry(.31, 28, 20), skin, headRig, [0, 1.49, -.14], [0,0,0], [1.08,.56,.92]);
-  for (const side of [-1, 1]) {
-    mesh(new THREE.SphereGeometry(.13, 24, 16), skin, headRig, [side * .31, 1.6, -.37], [0,0,side * .08], [1.15,.62,.72]);
-    mesh(new THREE.SphereGeometry(.105, 22, 14), skin, headRig, [side * .45, 1.67, -.07], [0,0,side * .12], [.48,1,.7]);
-    mesh(new THREE.CapsuleGeometry(.018, .12, 4, 10), hairMaterial, headRig, [side * .15, 1.84, -.47], [0,0,side * -.12]);
-  }
-  mesh(new THREE.CapsuleGeometry(.018, .22, 4, 10), black, headRig, [0, 1.48, -.48], [0,0,Math.PI / 2 + .05]);
-  mesh(new THREE.CapsuleGeometry(.012, .13, 4, 10), accentMaterial, headRig, [.03, 1.435, -.465], [0,0,Math.PI / 2 - .06]);
-  for (const side of [-1, 1]) mesh(new THREE.SphereGeometry(.014, 10, 8), black, headRig, [side * .032, 1.64, -.553], [0,0,0], [1.35,.65,.55]);
-  const eyeMaterial = new THREE.MeshStandardMaterial({ color: profile.accent, emissive: profile.accent, emissiveIntensity: 3 });
-  for (const side of [-1, 1]) {
-    mesh(new THREE.SphereGeometry(.045, 16, 12), eyeMaterial, headRig, [side * .15, 1.72, -.47], [0,0,0], [1,.74,.55]);
-    mesh(new THREE.TorusGeometry(.068, .012, 6, 20, Math.PI), skin, headRig, [side * .15, 1.73, -.493], [0,0,Math.PI]);
-  }
-  for (let wrinkle = 0; wrinkle < 3; wrinkle += 1) {
-    mesh(new THREE.TorusGeometry(.16 + wrinkle * .025, .008, 5, 18, Math.PI * .7), hairMaterial, headRig, [0, 1.88 + wrinkle * .045, -.4], [0,0,.42]);
-  }
-  if (profile.index % 2) {
-    mesh(new THREE.BoxGeometry(.012, .27, .018), accentMaterial, headRig, [-.19, 1.68, -.485], [0,0,-.32]);
-  }
-
-  if (profile.mutation === "gills") {
-    for (const side of [-1, 1]) {
-      for (let gill = 0; gill < 3; gill += 1) {
-        mesh(new THREE.ConeGeometry(.12, .34, 8), eldritchMaterial, headRig, [side * .43, 1.62 - gill * .14, -.08], [0,0,side * -Math.PI / 2], [1,.55,1]);
-      }
-    }
-  } else if (profile.mutation === "horns") {
-    mesh(new THREE.ConeGeometry(.13, .72, 12), eldritchMaterial, headRig, [-.27, 2.18, -.04], [0,0,.28]);
-    mesh(new THREE.ConeGeometry(.13, .72, 12), eldritchMaterial, headRig, [.27, 2.18, -.04], [0,0,-.28]);
-  } else if (profile.mutation === "spines") {
-    for (const side of [-1, 1]) {
-      for (let spine = 0; spine < 3; spine += 1) mesh(new THREE.ConeGeometry(.08, .36, 8), eldritchMaterial, body, [side * (.5 + spine * .1), .95 - spine * .22, .02], [0,0,side * -.8]);
-    }
-  }
-
-  if (profile.mutation === "thirdEye" || profile.index % 2 === 0) {
-    mesh(new THREE.SphereGeometry(.062, 12, 10), eyeMaterial, headRig, [0, 1.94, -.43], [0,0,0], [1,1.25,.5]);
-    mesh(new THREE.TorusGeometry(.095, .018, 8, 18), eldritchMaterial, headRig, [0, 1.94, -.44]);
-  } else {
-    for (const side of [-1, 1]) {
-      mesh(new THREE.SphereGeometry(.034, 10, 8), eyeMaterial, headRig, [side * .27, 1.6, -.43], [0,0,0], [1,1.15,.55]);
-      mesh(new THREE.SphereGeometry(.026, 10, 8), eyeMaterial, headRig, [side * .3, 1.51, -.39], [0,0,0], [1,1.1,.5]);
-    }
-  }
-
-  if (profile.hat === "flat") {
-    mesh(new THREE.CylinderGeometry(.48, .46, .18, 12), hairMaterial, headRig, [0, 2.08, -.05]);
-    mesh(new THREE.BoxGeometry(.62, .06, .36), hairMaterial, headRig, [0, 2.02, -.37]);
-  } else if (profile.hat === "glasses") {
-    for (const side of [-1,1]) mesh(new THREE.TorusGeometry(.14, .025, 8, 18), black, headRig, [side*.16, 1.72, -.49]);
-    mesh(new THREE.BoxGeometry(.12, .025, .025), black, headRig, [0, 1.72, -.5]);
-    mesh(new THREE.SphereGeometry(.445, 16, 8, 0, Math.PI*2, 0, Math.PI/2), hairMaterial, headRig, [0, 1.86, -.06]);
-  } else if (profile.hat === "beanie") {
-    mesh(new THREE.SphereGeometry(.47, 16, 10, 0, Math.PI*2, 0, Math.PI/2), clothing, headRig, [0, 1.9, -.05], [0,0,0], [1, .8, 1]);
-    mesh(new THREE.TorusGeometry(.43, .06, 8, 20), clothing, headRig, [0, 1.93, -.05], [Math.PI/2,0,0]);
-  } else if (profile.hat === "patch") {
-    mesh(new THREE.BoxGeometry(.24, .14, .035), black, headRig, [.15, 1.72, -.51], [0,0,-.08]);
-    mesh(new THREE.BoxGeometry(.72, .025, .02), black, headRig, [0, 1.79, -.5], [0,0,.12]);
-    mesh(new THREE.SphereGeometry(.445, 16, 8, 0, Math.PI*2, 0, Math.PI/2), hairMaterial, headRig, [0, 1.86, -.06]);
-  } else if (profile.hat === "band") {
-    mesh(new THREE.SphereGeometry(.445, 16, 8, 0, Math.PI*2, 0, Math.PI/2), hairMaterial, headRig, [0, 1.86, -.06]);
-    mesh(new THREE.BoxGeometry(.88, .11, .08), accentMaterial, headRig, [0, 1.91, -.37]);
-  } else {
-    mesh(new THREE.TorusGeometry(.48, .14, 8, 20, Math.PI*1.45), clothing, headRig, [0, 1.72, -.05], [0,0,.8]);
-  }
-
-  const setupArm = (side, armRig, handRig) => {
-    armRig.position.set(side * .56, .84, -.02);
-    mesh(new THREE.CapsuleGeometry(.155, .48, 8, 18), clothing, armRig, [0, -.3, -.18], [Math.PI/3.2, 0, side*.12]);
-    mesh(new THREE.SphereGeometry(.17, 24, 16), clothing, armRig, [0, .03, -.03], [0,0,0], [1.08,.92,1]);
-    handRig.position.set(side * .68, .05, -.92);
-    mesh(new THREE.CapsuleGeometry(.125, .36, 8, 16), clothing, handRig, [0, .2, .18], [Math.PI/2.6,0,side*.12]);
-    mesh(new THREE.CapsuleGeometry(.145, .12, 8, 18), skin, handRig, [0, -.05, -.05], [Math.PI / 2, 0, 0], [1.06, .82, 1.05]);
-    for (let finger = 0; finger < 4; finger += 1) {
-      const fingerX = (finger - 1.5) * .065;
-      mesh(new THREE.CapsuleGeometry(.025, .11, 5, 10), skin, handRig, [fingerX, -.09, -.18], [Math.PI / 2.2, 0, (finger - 1.5) * .035]);
-      mesh(new THREE.CapsuleGeometry(.022, .075, 5, 10), skin, handRig, [fingerX, -.13, -.285], [Math.PI / 1.65, 0, (finger - 1.5) * .045]);
-      mesh(new THREE.SphereGeometry(.021, 10, 7), nailMaterial, handRig, [fingerX, -.105, -.335], [0,0,0], [1,.42,1.35]);
-    }
-    mesh(new THREE.CapsuleGeometry(.032, .13, 6, 12), skin, handRig, [side * .15, -.02, -.13], [Math.PI / 2, 0, side * -.68]);
-    body.add(armRig, handRig);
-  };
-  setupArm(-1, leftArm, leftHand);
-  setupArm(1, rightArm, rightHand);
-  for (const side of [-1,1]) {
-    mesh(new THREE.CapsuleGeometry(.21, .54, 8, 18), clothing, body, [side*.34, -.66, .25], [Math.PI/2.25,0,0]);
-    mesh(makeBeveledBoxGeometry(.36, .72, .26, .07), black, body, [side*.34, -1.05, -.25], [Math.PI / 2, 0, 0]);
-  }
-  seat.add(chairBack, chairSeat, body, headRig);
+  const template = assetTemplates.characters.get(characterId);
+  if (!profile || !template) throw new Error(`Bilinmeyen Blender karakteri: ${characterId}`);
+  const seat = cloneBlenderAsset(template);
+  const body = findAssetRole(seat, "body");
+  const head = findAssetRole(seat, "head");
+  const leftArm = findAssetRole(seat, "leftArm");
+  const rightArm = findAssetRole(seat, "rightArm");
+  const leftHand = findAssetRole(seat, "leftHand");
+  const rightHand = findAssetRole(seat, "rightHand");
+  if (![body, head, leftArm, rightArm, leftHand, rightHand].every(Boolean)) throw new Error(`Karakter animasyon rolleri eksik: ${characterId}`);
   const activeRing = new THREE.Mesh(new THREE.TorusGeometry(.94, .055, 10, 40), new THREE.MeshStandardMaterial({ color: profile.accent, emissive: profile.accent, emissiveIntensity: 2.8, transparent: true, opacity: .92 }));
   activeRing.rotation.x = Math.PI / 2;
   activeRing.position.y = -.73;
@@ -1303,22 +1057,11 @@ function makeCharacter(characterId) {
   const faceLight = new THREE.PointLight(0xd8c7ac, 24, 3.2, 2);
   faceLight.position.set(0, 2.05, -1.05);
   seat.add(activeRing, targetRing, seatGlow, faceLight);
-  seat.userData.activeRing = activeRing;
-  seat.userData.targetRing = targetRing;
-  seat.userData.body = body;
-  seat.userData.head = headRig;
-  seat.userData.leftArm = leftArm;
-  seat.userData.rightArm = rightArm;
-  seat.userData.leftHand = leftHand;
-  seat.userData.rightHand = rightHand;
-  seat.userData.hit = 0;
-  seat.userData.action = 0;
-  seat.userData.blankPulse = 0;
-  seat.userData.exploded = false;
-  seat.userData.baseAngle = 0;
-  seat.userData.label = null;
-  seat.userData.labelName = "";
-  seat.userData.characterId = characterId;
+  Object.assign(seat.userData, {
+    activeRing, targetRing, body, head, leftArm, rightArm, leftHand, rightHand,
+    hit: 0, action: 0, blankPulse: 0, exploded: false, baseAngle: 0,
+    label: null, labelName: "", characterId
+  });
   return seat;
 }
 
@@ -1335,18 +1078,10 @@ for (let i = 0; i < 6; i += 1) {
 }
 
 function disposeGroup(group) {
-  group.traverse((object) => {
-    object.geometry?.dispose();
-    if (Array.isArray(object.material)) {
-      object.material.forEach((material) => {
-        material.map?.dispose();
-        material.dispose();
-      });
-    } else if (object.material) {
-      object.material.map?.dispose();
-      object.material.dispose();
-    }
-  });
+  for (const overlay of [group.userData.activeRing, group.userData.targetRing]) {
+    overlay?.geometry?.dispose();
+    overlay?.material?.dispose();
+  }
 }
 
 function ensureSeatCharacter(index, characterId, forceRebuild = false) {
@@ -1564,76 +1299,16 @@ for (let i = 0; i < 6; i += 1) {
 let itemPulseUntil = 0;
 let itemPulsePlayerId = null;
 
-function makeItemProp(type) {
-  const prop = new THREE.Group();
-  const steel = new THREE.MeshPhysicalMaterial({ color: 0x8b8e87, map: metalTexture, bumpMap: metalTexture, bumpScale: .018, roughness: .27, metalness: .82, clearcoat: .18 });
-  const brassItem = new THREE.MeshPhysicalMaterial({ color: 0xb48a3b, map: metalTexture, roughness: .3, metalness: .68, clearcoat: .2 });
-  const red = new THREE.MeshPhysicalMaterial({ color: 0x8b2117, roughness: .5, clearcoat: .2, clearcoatRoughness: .42 });
-  const paper = new THREE.MeshStandardMaterial({ color: 0xd0c8b5, map: characterFabricTexture, bumpMap: characterFabricTexture, bumpScale: .018, roughness: .88 });
-  const glass = new THREE.MeshPhysicalMaterial({ color: 0x6f3d1e, roughness: .12, metalness: .05, transparent: true, opacity: .72, transmission: .18, thickness: .18, clearcoat: .85 });
-  const itemBlack = new THREE.MeshPhysicalMaterial({ color: 0x101311, map: metalTexture, roughness: .34, metalness: .46, clearcoat: .28 });
-  const add = (geometry, material, position = [0, 0, 0], rotation = [0, 0, 0]) => {
-    const part = new THREE.Mesh(geometry, material);
-    part.position.set(...position);
-    part.rotation.set(...rotation);
-    part.castShadow = true;
-    prop.add(part);
-    return part;
-  };
-  if (type === "magnifier") {
-    add(new THREE.TorusGeometry(.28, .055, 14, 40), steel, [0, .18, 0], [Math.PI / 2, 0, 0]);
-    add(new THREE.CircleGeometry(.245, 36), new THREE.MeshPhysicalMaterial({ color: 0xa7c8c2, transparent: true, opacity: .26, transmission: .55, roughness: .04, metalness: 0, side: THREE.DoubleSide }), [0, .18, 0], [-Math.PI / 2, 0, 0]);
-    add(new THREE.CapsuleGeometry(.05, .38, 6, 12), steel, [.35, .05, 0], [0, 0, -Math.PI / 4]);
-    add(new THREE.TorusGeometry(.075, .018, 8, 20), brassItem, [.52, -.12, 0], [Math.PI / 2, 0, 0]);
-  } else if (type === "beer") {
-    add(new THREE.CylinderGeometry(.16, .2, .72, 28), glass, [0, .36, 0]);
-    add(new THREE.CylinderGeometry(.09, .12, .28, 24), glass, [0, .85, 0]);
-    add(new THREE.CylinderGeometry(.17, .17, .28, 28, 1, true), paper, [0, .42, 0]);
-    add(new THREE.TorusGeometry(.17, .012, 6, 28), red, [0, .53, 0], [Math.PI / 2, 0, 0]);
-    add(new THREE.CylinderGeometry(.1, .1, .04, 20), brassItem, [0, 1.01, 0]);
-  } else if (type === "cigarettes") {
-    add(makeBeveledBoxGeometry(.52, .72, .16, .06), paper, [0, .08, 0], [Math.PI / 2, 0, 0]);
-    add(makeBeveledBoxGeometry(.4, .46, .02, .025), red, [0, .17, -.02], [Math.PI / 2, 0, 0]);
-    for (const x of [-.16, -.053, .053, .16]) {
-      add(new THREE.CylinderGeometry(.035, .035, .6, 12), paper, [x, .18, 0], [Math.PI / 2, 0, 0]);
-      add(new THREE.CylinderGeometry(.036, .036, .12, 12), brassItem, [x, .18, -.35], [Math.PI / 2, 0, 0]);
-    }
-  } else if (type === "handcuffs") {
-    add(new THREE.TorusGeometry(.22, .04, 12, 36), steel, [-.28, .13, 0], [Math.PI / 2, 0, 0]);
-    add(new THREE.TorusGeometry(.22, .04, 12, 36), steel, [.28, .13, 0], [Math.PI / 2, 0, 0]);
-    for (const x of [-.12, 0, .12]) add(new THREE.TorusGeometry(.065, .018, 8, 18), steel, [x, .13, 0], [Math.PI / 2, 0, 0]);
-    add(new THREE.CylinderGeometry(.025, .025, .13, 12), brassItem, [-.28, .17, -.19], [Math.PI / 2, 0, 0]);
-    add(new THREE.CylinderGeometry(.025, .025, .13, 12), brassItem, [.28, .17, -.19], [Math.PI / 2, 0, 0]);
-  } else if (type === "handsaw") {
-    add(makeBeveledBoxGeometry(.95, .28, .045, .025), steel, [.08, .15, 0], [Math.PI / 2, -.12, 0]);
-    for (let tooth = 0; tooth < 9; tooth += 1) add(new THREE.ConeGeometry(.035, .12, 3), steel, [-.28 + tooth * .1, .08, -.16], [Math.PI, 0, 0]);
-    add(makeBeveledBoxGeometry(.34, .4, .16, .09), new THREE.MeshPhysicalMaterial({ color: 0x4f2818, map: woodTexture, bumpMap: woodTexture, bumpScale: .03, roughness: .52, clearcoat: .25 }), [-.54, .15, 0], [Math.PI / 2, 0, 0]);
-    add(new THREE.CylinderGeometry(.035, .035, .18, 12), brassItem, [-.54, .23, 0], [Math.PI / 2, 0, 0]);
-  } else if (type === "phone") {
-    add(makeBeveledBoxGeometry(.52, .86, .12, .1), itemBlack, [0, .08, 0], [Math.PI / 2, 0, 0]);
-    add(makeBeveledBoxGeometry(.38, .56, .018, .045), new THREE.MeshPhysicalMaterial({ color: 0x6d8b72, emissive: 0x1d3822, emissiveIntensity: 1.5, roughness: .16, clearcoat: .8 }), [0, .15, -.02], [Math.PI / 2, 0, 0]);
-    add(new THREE.TorusGeometry(.055, .012, 8, 20), steel, [0, .16, .36], [Math.PI / 2, 0, 0]);
-    add(new THREE.SphereGeometry(.032, 12, 8), glass, [-.16, .16, -.34]);
-  } else if (type === "inverter") {
-    add(new THREE.CylinderGeometry(.13, .13, .72, 20), red, [0, .14, 0], [0, 0, Math.PI / 2]);
-    add(new THREE.CylinderGeometry(.14, .14, .22, 20), brassItem, [.43, .14, 0], [0, 0, Math.PI / 2]);
-    add(new THREE.TorusGeometry(.25, .035, 10, 30), steel, [0, .14, 0], [Math.PI / 2, 0, 0]);
-    for (const x of [-.22, -.08, .08, .22]) add(new THREE.TorusGeometry(.132, .01, 6, 20), itemBlack, [x, .14, 0], [0, Math.PI / 2, 0]);
-  } else if (type === "adrenaline") {
-    add(new THREE.CylinderGeometry(.07, .07, .78, 18), new THREE.MeshPhysicalMaterial({ color: 0xa9d9ba, transparent: true, opacity: .55, transmission: .35, roughness: .08 }), [0, .15, 0], [0, 0, Math.PI / 2]);
-    add(new THREE.CylinderGeometry(.055, .055, .48, 16), red, [-.05, .15, 0], [0, 0, Math.PI / 2]);
-    add(new THREE.CylinderGeometry(.09, .09, .08, 16), steel, [-.44, .15, 0], [0, 0, Math.PI / 2]);
-    add(new THREE.CylinderGeometry(.018, .018, .4, 10), steel, [.58, .15, 0], [0, 0, Math.PI / 2]);
-    add(new THREE.CylinderGeometry(.14, .14, .025, 18), red, [-.55, .15, 0], [0, 0, Math.PI / 2]);
-  } else {
-    add(new THREE.CylinderGeometry(.23, .25, .48, 24), paper, [0, .25, 0]);
-    add(new THREE.CylinderGeometry(.18, .2, .13, 24), red, [0, .56, 0]);
-    add(new THREE.TorusGeometry(.235, .018, 8, 28), brassItem, [0, .14, 0], [Math.PI / 2, 0, 0]);
-    add(new THREE.BoxGeometry(.18, .04, .04), red, [0, .26, -.24]);
-    add(new THREE.BoxGeometry(.04, .18, .04), red, [0, .26, -.24]);
-  }
-  prop.scale.setScalar(.68);
+function makeBlenderItem(type, scale = .68) {
+  const template = assetTemplates.items.get(type);
+  if (!template) throw new Error(`Bilinmeyen Blender ekipmanı: ${type}`);
+  const prop = cloneBlenderAsset(template, scale);
+  prop.userData.itemType = type;
   return prop;
+}
+
+function makeItemProp(type) {
+  return makeBlenderItem(type);
 }
 
 function syncItemProps(players) {
@@ -1653,11 +1328,6 @@ function syncItemProps(players) {
     if (signature === tray.userData.signature) return;
     tray.userData.signature = signature;
     const props = tray.userData.props;
-    props.traverse((object) => {
-      object.geometry?.dispose();
-      if (Array.isArray(object.material)) object.material.forEach((material) => material.dispose());
-      else object.material?.dispose();
-    });
     props.clear();
     player.items.slice(0, player.itemLimit).forEach((item, index) => {
       const prop = makeItemProp(item);
@@ -1683,6 +1353,8 @@ const dust = new THREE.Points(dustGeometry, new THREE.PointsMaterial({ color: 0x
 scene.add(dust);
 
 function syncSeats(players) {
+  const viewer = players.find((player) => player.id === state?.viewerId);
+  if (viewer) ensureViewerHands(viewer.character);
   players.forEach((player, index) => {
     const reviveExplodedSeat = Boolean(player.alive && seats[index]?.userData.exploded);
     if (reviveExplodedSeat) clearDeathEffects(player.id);
@@ -1731,10 +1403,14 @@ const smoothedGunPosition = desiredGunPosition.clone();
 const gunDirectionScratch = new THREE.Vector3();
 const cameraFallbackScratch = new THREE.Vector3();
 const cameraFocusScratch = new THREE.Vector3();
-const leftGunGrip = new THREE.Vector3(.2, -.12, -.2);
-const rightGunGrip = new THREE.Vector3(-1.88, -.47, .18);
+const leftGunGrip = findAssetRole(blenderShotgun, "leftGrip").position.clone();
+const rightGunGrip = findAssetRole(blenderShotgun, "rightGrip").position.clone();
+const viewerLeftGunGrip = leftGunGrip.clone().add(new THREE.Vector3(0, -.28, -.28));
+const viewerRightGunGrip = rightGunGrip.clone().add(new THREE.Vector3(0, -.24, .28));
 const leftGripScratch = new THREE.Vector3();
 const rightGripScratch = new THREE.Vector3();
+const muzzleScratch = new THREE.Vector3();
+const viewerHandQuaternion = new THREE.Quaternion();
 const leftHandRest = new THREE.Vector3(-.68, .05, -.92);
 const rightHandRest = new THREE.Vector3(.68, .05, -.92);
 let pendingGunPlayerId = null;
@@ -1900,12 +1576,169 @@ function animateShot(result) {
   }
 }
 
-function animateItem({ actorId, item }) {
+const itemActionDurations = {
+  handsaw: 2800, phone: 2300, beer: 2500, cigarettes: 2200, handcuffs: 2500,
+  magnifier: 2200, inverter: 2400, adrenaline: 2800, medicine: 2400
+};
+const itemActionColors = {
+  handsaw: 0xff7b32, phone: 0x5ef2b0, beer: 0x47ff9b, cigarettes: 0xff8448,
+  handcuffs: 0x9edcff, magnifier: 0xdfffc1, inverter: 0xa679ff,
+  adrenaline: 0xff314e, medicine: 0xd8ff73
+};
+let activeItemAction = null;
+const itemActionQueue = [];
+const actionStartScratch = new THREE.Vector3();
+const actionTargetScratch = new THREE.Vector3();
+const actionOffHandScratch = new THREE.Vector3();
+const actionGunScratch = new THREE.Vector3();
+const actionQuaternionScratch = new THREE.Quaternion();
+
+function isItemAnimationLocked() {
+  return Boolean(activeItemAction || itemActionQueue.length);
+}
+
+function easeItemAction(value) {
+  const x = Math.min(1, Math.max(0, value));
+  return x * x * (3 - 2 * x);
+}
+
+function finishItemAction() {
+  if (!activeItemAction) return;
+  scene.remove(activeItemAction.prop, activeItemAction.light, activeItemAction.fx);
+  activeItemAction.fx.traverse((object) => object.geometry?.dispose());
+  activeItemAction.light.dispose?.();
+  activeItemAction = null;
+  const nextAction = itemActionQueue.shift();
+  if (nextAction) requestAnimationFrame(() => animateItem(nextAction));
+  else if (state?.phase === "playing") requestAnimationFrame(renderState);
+}
+
+function animateItem(payload) {
+  if (activeItemAction) {
+    itemActionQueue.push(payload);
+    return;
+  }
+  const { actorId, item, animationTargetId = null, animationShell = null } = payload;
+  disableActions();
   itemPulseUntil = performance.now() + 650;
   itemPulsePlayerId = actorId;
   const info = itemInfo[item];
   showToast(`${info?.name ?? "Ekipman"} kullanıldı.`);
-  playTone(280, .13, "triangle", .055);
+  const prop = makeBlenderItem(item, item === "cigarettes" ? .82 : .92);
+  const light = new THREE.PointLight(itemActionColors[item] ?? 0xd7ff3f, 0, 4.8, 2);
+  const fx = new THREE.Group();
+  if (item === "handsaw") {
+    const sparkMaterial = new THREE.MeshBasicMaterial({ color: 0xff9d45 });
+    for (let index = 0; index < 14; index += 1) {
+      const spark = new THREE.Mesh(new THREE.SphereGeometry(.018 + index % 3 * .007, 6, 4), sparkMaterial);
+      spark.userData.phase = index / 14 * Math.PI * 2;
+      fx.add(spark);
+    }
+  } else if (item === "cigarettes") {
+    const smokeMaterial = new THREE.MeshBasicMaterial({ color: 0xc6d6cf, transparent: true, opacity: .24, depthWrite: false });
+    for (let index = 0; index < 7; index += 1) {
+      const smoke = new THREE.Mesh(new THREE.TorusGeometry(.05 + index * .012, .008, 6, 18), smokeMaterial.clone());
+      smoke.userData.phase = index / 7;
+      fx.add(smoke);
+    }
+  }
+  scene.add(prop, light, fx);
+  activeItemAction = {
+    actorId, item, animationTargetId, animationShell, prop, light, fx,
+    startedAt: performance.now(), duration: itemActionDurations[item] ?? 2200,
+    handWorld: new THREE.Vector3(), offHandWorld: new THREE.Vector3(), progress: 0
+  };
+  playTone(item === "handsaw" ? 118 : item === "phone" ? 460 : 280, .13, item === "handsaw" ? "sawtooth" : "triangle", .055);
+}
+
+function updateItemAction(frameNow) {
+  const action = activeItemAction;
+  if (!action || !state) return;
+  const actorIndex = state.players.findIndex((player) => player.id === action.actorId);
+  const actorSeat = seats[actorIndex];
+  if (!actorSeat) return finishItemAction();
+  const targetIndex = state.players.findIndex((player) => player.id === action.animationTargetId);
+  const targetSeat = seats[targetIndex];
+  const raw = (frameNow - action.startedAt) / action.duration;
+  if (raw >= 1) {
+    if (action.item === "beer" && action.animationShell) ejectSpentShell(action.animationShell);
+    return finishItemAction();
+  }
+  action.progress = raw;
+  const enter = easeItemAction(raw / .22);
+  const exit = easeItemAction((raw - .78) / .22);
+  const hold = Math.min(1, enter) * (1 - exit);
+  actorSeat.updateWorldMatrix(true, true);
+  actorSeat.userData.rightHand.getWorldPosition(actionStartScratch);
+  actionTargetScratch.copy(actionStartScratch);
+  actionOffHandScratch.copy(actionStartScratch).add(new THREE.Vector3(-.26, .05, 0));
+
+  if (action.item === "handsaw") {
+    barrelAssembly.scale.x = raw <= .42 ? 1 : (raw < .72 ? THREE.MathUtils.lerp(1, .52, easeItemAction((raw - .42) / .3)) : .52);
+    barrelAssembly.localToWorld(actionTargetScratch.set(1.05, .06, -.12));
+    actionTargetScratch.y += Math.sin(raw * Math.PI * 18) * .055;
+    actionOffHandScratch.copy(actionTargetScratch).add(new THREE.Vector3(-.42, .12, .02));
+    gun.getWorldQuaternion(actionQuaternionScratch);
+    action.prop.quaternion.slerp(actionQuaternionScratch, .3);
+    action.prop.rotation.z += Math.sin(raw * Math.PI * 18) * .075;
+    action.fx.position.copy(actionTargetScratch).add(new THREE.Vector3(.18, -.05, 0));
+    action.fx.children.forEach((spark) => {
+      const age = (raw * 5 + spark.userData.phase / (Math.PI * 2)) % 1;
+      spark.position.set(Math.cos(spark.userData.phase) * age * .46, age * -.36, Math.sin(spark.userData.phase) * age * .28);
+      spark.scale.setScalar(1 - age);
+    });
+    if (raw > .42 && raw < .72) {
+      if (Math.floor(raw * 22) % 4 === 0) playTone(72 + raw * 55, .025, "sawtooth", .018);
+    }
+  } else if (action.item === "phone") {
+    actorSeat.localToWorld(actionTargetScratch.set(.43, 1.78, -.55));
+    actionOffHandScratch.copy(actionTargetScratch).add(new THREE.Vector3(-.25, -.28, .04));
+    action.prop.rotation.set(-.18, actorSeat.rotation.y, -.12);
+    action.light.intensity = 20 + Math.sin(frameNow * .024) * 8;
+  } else if (action.item === "beer" || action.item === "medicine") {
+    actorSeat.localToWorld(actionTargetScratch.set(action.item === "beer" ? .12 : -.1, 1.62, -.58));
+    actionOffHandScratch.copy(actionTargetScratch).add(new THREE.Vector3(-.25, -.34, .08));
+    action.prop.rotation.set(0, actorSeat.rotation.y, raw > .35 && raw < .76 ? -1.35 : -.25);
+    if (action.item === "beer") action.light.intensity = hold * 32;
+  } else if (action.item === "cigarettes") {
+    actorSeat.localToWorld(actionTargetScratch.set(.12, 1.6, -.61));
+    actionOffHandScratch.copy(actionTargetScratch).add(new THREE.Vector3(-.32, -.4, .08));
+    action.prop.scale.setScalar(.38);
+    action.fx.position.copy(actionTargetScratch).add(new THREE.Vector3(0, .05, -.04));
+    action.fx.children.forEach((smoke) => {
+      const age = (raw * 1.8 + smoke.userData.phase) % 1;
+      smoke.position.set(Math.sin(age * 8) * .045, age * .75, Math.cos(age * 6) * .035);
+      smoke.scale.setScalar(.35 + age * 1.4);
+      smoke.material.opacity = (1 - age) * .25;
+    });
+    action.light.intensity = hold * (8 + Math.sin(frameNow * .04) * 4);
+  } else if (action.item === "handcuffs") {
+    const destination = targetSeat ?? actorSeat;
+    destination.localToWorld(actionTargetScratch.set(0, .45, -.75));
+    actionOffHandScratch.copy(actionTargetScratch).add(new THREE.Vector3(.35, .05, 0));
+    action.prop.rotation.set(Math.PI / 2, destination.rotation.y, raw * Math.PI * 2);
+  } else if (action.item === "adrenaline") {
+    if (raw < .48) actorSeat.localToWorld(actionTargetScratch.set(.48, 1.42, -.36));
+    else (targetSeat ?? actorSeat).localToWorld(actionTargetScratch.set(0, .55, -.82));
+    actionOffHandScratch.copy(actionTargetScratch).add(new THREE.Vector3(-.3, -.18, 0));
+    action.prop.rotation.set(0, actorSeat.rotation.y, Math.PI / 2);
+    action.light.intensity = hold * 28;
+  } else {
+    gun.localToWorld(actionGunScratch.set(-.52, .08, -.42));
+    actionTargetScratch.copy(actionGunScratch);
+    actionOffHandScratch.copy(actionTargetScratch).add(new THREE.Vector3(-.35, -.18, .05));
+    action.prop.rotation.set(Math.PI / 2, gun.rotation.y, raw * (action.item === "inverter" ? Math.PI * 3 : .25));
+    action.light.intensity = hold * (action.item === "inverter" ? 38 : 18);
+  }
+
+  const travel = raw < .5 ? enter : 1 - exit;
+  action.prop.position.lerpVectors(actionStartScratch, actionTargetScratch, travel);
+  action.handWorld.copy(action.prop.position);
+  action.offHandWorld.lerpVectors(actionStartScratch, actionOffHandScratch, travel);
+  action.light.position.copy(action.prop.position);
+  if (action.item !== "phone" && action.item !== "beer" && action.item !== "adrenaline" && action.item !== "medicine") {
+    action.light.intensity = Math.max(action.light.intensity, hold * 16);
+  }
 }
 
 const clock = new THREE.Clock();
@@ -1959,13 +1792,15 @@ function frame() {
   gun.position.x = smoothedGunPosition.x - Math.cos(gun.rotation.y) * gunRecoil * .3;
   gun.position.z = smoothedGunPosition.z + Math.sin(gun.rotation.y) * gunRecoil * .3;
   gun.position.y = smoothedGunPosition.y + Math.sin(time * .7) * .014;
-  pump.position.x = .35 - pumpAction * .52;
-  actionBolt.position.x = -pumpAction * .3;
+  pump.position.x = pumpRestX - pumpAction * .52;
+  actionBolt.position.x = boltRestX - pumpAction * .3;
   carrier.position.y = -.438 + pumpAction * .075;
   carrier.rotation.z = pumpAction * -.12;
-  muzzleLight.position.x = barrelAssembly.position.x + muzzle.position.x * barrelAssembly.scale.x + .22;
-  muzzleLight.position.y = barrelAssembly.position.y + muzzle.position.y;
+  muzzle.getWorldPosition(muzzleScratch);
+  gun.worldToLocal(muzzleScratch);
+  muzzleLight.position.copy(muzzleScratch);
   muzzleLight.intensity = muzzleEnergy * 85;
+  updateItemAction(frameNow);
 
   if (roundAnimationStart > 0 && shells.children.length) {
     const elapsed = frameNow - roundAnimationStart;
@@ -2054,6 +1889,18 @@ function frame() {
 
   gun.updateWorldMatrix(true, true);
   const holdingActorId = activeGunActorId();
+  const viewerUsingItem = activeItemAction?.actorId === state?.viewerId;
+  const viewerHoldingGun = holdingActorId === state?.viewerId;
+  viewerHands.visible = Boolean(state?.phase === "playing" && (viewerUsingItem || viewerHoldingGun) && viewerLeftHand && viewerRightHand);
+  if (viewerHands.visible) {
+    const leftTarget = viewerUsingItem ? activeItemAction.offHandWorld : gun.localToWorld(leftGripScratch.copy(viewerLeftGunGrip));
+    const rightTarget = viewerUsingItem ? activeItemAction.handWorld : gun.localToWorld(rightGripScratch.copy(viewerRightGunGrip));
+    viewerLeftHand.position.lerp(leftTarget, .24);
+    viewerRightHand.position.lerp(rightTarget, .24);
+    (viewerUsingItem ? activeItemAction.prop : gun).getWorldQuaternion(viewerHandQuaternion);
+    viewerLeftHand.quaternion.slerp(viewerHandQuaternion, .18);
+    viewerRightHand.quaternion.slerp(viewerHandQuaternion, .18);
+  }
   seats.forEach((seat, index) => {
     if (!seat.visible) return;
     if (seat.userData.exploded) {
@@ -2064,6 +1911,7 @@ function frame() {
     const player = state?.players[index];
     const active = player?.id === state?.currentPlayerId;
     const holdingGun = player?.id === holdingActorId && player?.alive;
+    const usingItem = activeItemAction?.actorId === player?.id;
     seat.userData.hit *= .88;
     seat.userData.action *= .9;
     seat.userData.blankPulse *= .9;
@@ -2074,12 +1922,16 @@ function frame() {
     seat.userData.body.rotation.x += ((holdingGun ? -.09 : (active ? -.055 : 0)) - seat.userData.body.rotation.x) * .055;
     seat.userData.head.rotation.y = Math.sin(time * .47 + index) * .055;
     seat.userData.head.rotation.x += ((active ? -.05 : .02) + seat.userData.hit * .25 - seat.userData.head.rotation.x) * .08;
-    const armTarget = holdingGun ? -1.02 : seat.userData.action * -.42;
+    const armTarget = usingItem ? -.82 : (holdingGun ? -1.02 : seat.userData.action * -.42);
     seat.userData.leftArm.rotation.x += (armTarget - seat.userData.leftArm.rotation.x) * .14;
     seat.userData.rightArm.rotation.x += (armTarget - seat.userData.rightArm.rotation.x) * .14;
     seat.userData.leftHand.rotation.x += ((holdingGun ? -.34 : seat.userData.action * -.28) - seat.userData.leftHand.rotation.x) * .14;
     seat.userData.rightHand.rotation.x += ((holdingGun ? -.34 : seat.userData.action * -.28) - seat.userData.rightHand.rotation.x) * .14;
-    if (holdingGun) {
+    if (usingItem) {
+      seat.updateWorldMatrix(true, false);
+      seat.userData.rightHand.position.lerp(seat.worldToLocal(rightGripScratch.copy(activeItemAction.handWorld)), .22);
+      seat.userData.leftHand.position.lerp(seat.worldToLocal(leftGripScratch.copy(activeItemAction.offHandWorld)), .22);
+    } else if (holdingGun) {
       seat.updateWorldMatrix(true, false);
       gun.localToWorld(leftGripScratch.copy(leftGunGrip));
       gun.localToWorld(rightGripScratch.copy(rightGunGrip));
@@ -2117,7 +1969,7 @@ function frame() {
   fan.rotation.z = time * 1.35;
   monitorScreen.material.emissiveIntensity = 1.75 + Math.sin(time * 7.4) * .18 + Math.sin(time * 19.1) * .08;
   warningSprite.material.opacity = .82 + Math.sin(time * 5.3) * .12;
-  keyLight.intensity = 304 + Math.sin(time * 2.1) * 8 + Math.sin(time * 7.7) * 4;
+  keyLight.intensity = 164 + Math.sin(time * 2.1) * 6 + Math.sin(time * 7.7) * 3;
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }

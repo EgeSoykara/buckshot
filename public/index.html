@@ -19,9 +19,15 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=DM+Mono:wght@400;500&family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=20260813-death-v1" />
+    <link rel="stylesheet" href="/styles.css?v=20260813-blender-v2" />
+    <script type="importmap">
+      {"imports":{"three":"/vendor/three/three.module.js","three/addons/":"/vendor/three-addons/"}}
+    </script>
   </head>
   <body>
+    <div id="asset-loader" class="asset-loader" role="status" aria-live="polite">
+      <i></i><strong>MASA UYANIYOR</strong><span>Blender varlıkları hazırlanıyor…</span>
+    </div>
     <canvas id="scene" aria-hidden="true"></canvas>
     <div class="grain" aria-hidden="true"></div>
     <div class="scanlines" aria-hidden="true"></div>
@@ -192,6 +198,6 @@
     </dialog>
 
     <script src="/socket.io/socket.io.js"></script>
-    <script type="module" src="/game.js?v=20260813-visual-quality-v1"></script>
+    <script type="module" src="/game.js?v=20260813-blender-v2"></script>
   </body>
 </html>

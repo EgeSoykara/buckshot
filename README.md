@@ -2,7 +2,9 @@
 
 Arkadaşlarınla tarayıcıdan oynayabileceğin, 2–6 kişilik gerçek zamanlı 3B Lovecraftian masa gerilim oyunu. Mekanik olarak şans, hedef seçimi, karakter pasifleri ve ekipman kullanımını birleştirir; bütün kodlar, 3B modeller ve görsel kimlik bu proje için özgün hazırlanmıştır.
 
-Her oyuncu seçtiği kimliğe ait farklı yüz, beden, kıyafet, mutasyon ve pasifle temsil edilir. Bu seçim sunucuda saklanır, bütün oyunculara yayınlanır ve yeniden bağlantıda korunur. Sisli 3B masa, okült mühürler, fiziksel eşya tepsileri ve ayrıntılı pompalı oyun durumuna tepki verir. Her raundun başında kırmızı dolu ve mavi boş fişeklerin sayısı tek tek gösterilir; sıraları gizlendikten sonra fişekler pompalıya tek tek yüklenir ve tur süresi ancak yükleme bitince başlar. Önce hedef seçilir; sunucuya kaydedilen kırmızı namlu yönü, nişangâh ve hedef halkası odadaki bütün oyuncuların ekranında aynı kilidi gösterir. Ayrı tetik düğmesiyle ateş edilir. Dolu atışlarda ateş/parlama ve hasar, boş atışlarda kararma, mekanik klik ve pompa animasyonu gösterilir; pompalama sırasında kullanılan kırmızı veya mavi kovan tahliye penceresinden çıkarak masaya düşer. İki sonuçta da ateş eden ile hedef ekranda açıkça yazılır.
+Her oyuncu seçtiği kimliğe ait farklı yüz, beden, kıyafet, mutasyon ve pasifle temsil edilir. Blender'da üretilen PBR karakter, pompalı ve ekipman modelleri tek bir optimize GLB varlık setinden yüklenir. Bu seçim sunucuda saklanır, bütün oyunculara yayınlanır ve yeniden bağlantıda korunur. Sisli 3B masa, okült mühürler, fiziksel eşya tepsileri ve ayrıntılı pompalı oyun durumuna tepki verir. Her raundun başında kırmızı dolu ve mavi boş fişeklerin sayısı tek tek gösterilir; sıraları gizlendikten sonra fişekler pompalıya tek tek yüklenir ve tur süresi ancak yükleme bitince başlar. Önce hedef seçilir; sunucuya kaydedilen kırmızı namlu yönü, nişangâh ve hedef halkası odadaki bütün oyuncuların ekranında aynı kilidi gösterir. Ayrı tetik düğmesiyle ateş edilir. Dolu atışlarda ateş/parlama ve hasar, boş atışlarda kararma, mekanik klik ve pompa animasyonu gösterilir; pompalama sırasında kullanılan kırmızı veya mavi kovan tahliye penceresinden çıkarak masaya düşer. İki sonuçta da ateş eden ile hedef ekranda açıkça yazılır.
+
+Her ekipmanın sunucu olayından beslenen, odadaki bütün oyunculara aynı anda gösterilen özel bir animasyonu vardır. El testeresi pompalının namlusunu kıvılcımlarla keser; telefon oyuncunun yüzüne kalkar; bira yerine kullanılan yeşil Uçurum Şişesi içilir; sigara duman çıkarır; kelepçe ve adrenalin gerçek hedef oyuncuya uzanır; büyüteç ile çevirici mekanizmaya tutulur ve ilaç ağıza götürülür.
 
 ## Oyuncular nasıl katılır?
 
@@ -60,6 +62,12 @@ npm run dev
 
 Ardından `http://localhost:3000` adresini aç.
 
+## Blender varlık hattı
+
+Kaynak sahne `blender/last-chamber-kit.blend`, tekrar üretilebilir oluşturma betiği `blender/build_lovecraft_asset_kit.py`, tarayıcı çıktısı ise `public/assets/last-chamber-kit.glb` dosyasıdır. Blender sahnesi altı karakter, pompalı ve dokuz ekipman için `asset_kind`, `character_id`, `item_type` ve `lc_role` özel alanlarını taşır. Web istemcisi bu rolleri baş, kol, el, namlu, pompa, sürgü ve tutuş animasyonları için kullanır.
+
+Modeli yeniden üretmek için betiği Blender içinde çalıştır. Betik sahneyi kurar, hareketli roller dışındaki dekoratif parçaları web performansı için birleştirir, `.blend` kaynağını kaydeder ve GLB'yi doğrudan `public/assets` altına dışa aktarır. Blender MCP bağlıysa aynı betik `execute_blender_code` üzerinden çalıştırılabilir.
+
 ## Doğrulama
 
 ```bash
@@ -68,7 +76,7 @@ npm run check
 ```
 
 - Sunucu: Express + Socket.IO
-- 3B istemci: Three.js
+- 3B istemci: Three.js + Blender/glTF 2.0
 - Dağıtım: Render Web Service
 
 ## Lisans

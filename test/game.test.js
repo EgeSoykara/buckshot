@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { resolveAimTarget } from "../shared/aiming.js";
 import { FIRST_PERSON_CAMERA_HEIGHT, FIRST_PERSON_CAMERA_RADIUS, SEAT_RADIUS, firstPersonViewForPlayer, minimumGunTrayClearance, minimumItemSlotClearance, playerSeatAngle } from "../shared/table-layout.js";
 import {
@@ -24,6 +25,30 @@ test("haznede hem dolu hem boş fişek bulunur", () => {
     assert.ok(magazine.includes("live"));
     assert.ok(magazine.includes("blank"));
     assert.ok(magazine.length >= 6 && magazine.length <= 8);
+  }
+});
+
+test("Blender varlık seti geçerli GLB içerir ve tüm oynanabilir modelleri tanımlar", () => {
+  const asset = readFileSync(new URL("../public/assets/last-chamber-kit.glb", import.meta.url));
+  const buildSource = readFileSync(new URL("../blender/build_lovecraft_asset_kit.py", import.meta.url), "utf8");
+  assert.equal(asset.subarray(0, 4).toString(), "glTF");
+  assert.ok(asset.byteLength > 1_000_000);
+  const jsonChunkLength = asset.readUInt32LE(12);
+  const json = JSON.parse(asset.subarray(20, 20 + jsonChunkLength).toString("utf8").trim());
+  const roots = json.scenes[json.scene].nodes.map((nodeIndex) => json.nodes[nodeIndex]);
+  const extras = roots.map((node) => node.extras ?? {});
+  assert.equal(extras.filter((data) => data.asset_kind === "shotgun").length, 1);
+  assert.deepEqual(extras.filter((data) => data.asset_kind === "character").map((data) => data.character_id).sort(), Object.keys(CHARACTER_RULES).sort());
+  assert.deepEqual(extras.filter((data) => data.asset_kind === "item").map((data) => data.item_type).sort(), ["magnifier", "beer", "cigarettes", "handcuffs", "handsaw", "phone", "inverter", "adrenaline", "medicine"].sort());
+  const nodeRoles = new Set(json.nodes.map((node) => node.extras?.lc_role).filter(Boolean));
+  for (const role of ["body", "head", "leftArm", "rightArm", "leftHand", "rightHand", "barrelAssembly", "pump", "bolt", "muzzle", "leftGrip", "rightGrip"]) assert.ok(nodeRoles.has(role), `GLB rolü eksik: ${role}`);
+  assert.equal(json.materials.filter((material) => material.pbrMetallicRoughness?.baseColorTexture).length, json.materials.length);
+  assert.equal(json.materials.filter((material) => material.pbrMetallicRoughness?.metallicRoughnessTexture).length, json.materials.length);
+  assert.equal(json.materials.filter((material) => material.normalTexture).length, json.materials.length);
+  assert.ok(json.images.length >= json.materials.length * 3);
+  for (const character of Object.keys(CHARACTER_RULES)) assert.match(buildSource, new RegExp(`"${character}"`));
+  for (const item of ["magnifier", "beer", "cigarettes", "handcuffs", "handsaw", "phone", "inverter", "adrenaline", "medicine"]) {
+    assert.match(buildSource, new RegExp(`item_root\\("${item}"\\)`));
   }
 });
 
@@ -160,12 +185,15 @@ test("masa ekipmanları fişekleri, canı, hasarı ve sırayı değiştirir", ()
   assert.match(room.useItem("p1", "magnifier", 1100).privateMessage, /DOLU/);
   room.useItem("p1", "inverter", 1200);
   assert.equal(room.magazine[0], "blank");
-  assert.match(room.useItem("p1", "beer", 1300).privateMessage, /Boş.*Tuzlu Kan/);
+  const beerResult = room.useItem("p1", "beer", 1300);
+  assert.match(beerResult.privateMessage, /Boş.*Tuzlu Kan/);
+  assert.equal(beerResult.animationShell, "blank");
   assert.equal(actor.health, CHARACTER_RULES.mariner.maxHealth);
   actor.health = 2;
   room.useItem("p1", "cigarettes", 1400);
   assert.equal(actor.health, CHARACTER_RULES.mariner.maxHealth);
-  room.useItem("p1", "handcuffs", 1500);
+  const cuffsResult = room.useItem("p1", "handcuffs", 1500);
+  assert.equal(cuffsResult.animationTargetId, "p2");
   assert.equal(room.player("p2").skipTurns, 1);
   room.useItem("p1", "handsaw", 1600);
   assert.equal(actor.sawed, true);
@@ -189,7 +217,8 @@ test("telefon bilgi verir ve adrenalin rakip ekipmanı çalar", () => {
   room.player("p2").items = ["handsaw"];
 
   assert.match(room.useItem("p1", "phone", 1200).privateMessage, /fişek/);
-  room.useItem("p1", "adrenaline", 1300);
+  const adrenalineResult = room.useItem("p1", "adrenaline", 1300);
+  assert.equal(adrenalineResult.animationTargetId, "p2");
   assert.deepEqual(room.player("p1").items, ["handsaw"]);
   assert.deepEqual(room.player("p2").items, []);
 });

@@ -21,6 +21,7 @@ const indexHtml = readFileSync(path.join(root, "public/index.html"), "utf8");
 app.disable("x-powered-by");
 app.get("/health", (_request, response) => response.status(200).json({ ok: true }));
 app.use("/vendor/three", express.static(path.join(root, "node_modules/three/build"), { immutable: true, maxAge: "1y" }));
+app.use("/vendor/three-addons", express.static(path.join(root, "node_modules/three/examples/jsm"), { immutable: true, maxAge: "1y" }));
 app.use("/shared", express.static(path.join(root, "shared"), { immutable: true, maxAge: "1y" }));
 app.use(express.static(path.join(root, "public"), { index: false, maxAge: "1h" }));
 app.get("/{*path}", (request, response) => {
@@ -121,7 +122,14 @@ io.on("connection", (socket) => {
       if (!room) throw new Error("Oda bulunamadı.");
       const result = room.useItem(socket.id, item);
       if (result.privateMessage) socket.emit("game:secret", { message: result.privateMessage });
-      if (result.used !== false) io.to(room.code).emit("game:item-used", { actorId: socket.id, item });
+      if (result.used !== false) {
+        io.to(room.code).emit("game:item-used", {
+          actorId: socket.id,
+          item,
+          animationTargetId: result.animationTargetId ?? null,
+          animationShell: result.animationShell ?? null
+        });
+      }
       broadcast(room);
     } catch (error) {
       fail(socket, error);
