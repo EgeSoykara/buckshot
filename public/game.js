@@ -39,6 +39,7 @@ let secretTimer;
 let soundEnabled = true;
 let audioContext;
 let hoveredPlayerId = null;
+let selectedTargetId = null;
 let previousCurrentPlayerId = null;
 
 const savedName = localStorage.getItem("last-chamber-name");
@@ -139,7 +140,10 @@ socket.on("session:expired", ({ message }) => {
   history.replaceState({}, "", location.pathname);
   showToast(message || "Eski oda artık açık değil. Yeni bir oda kurabilirsin.", true);
 });
-socket.on("game:error", ({ message }) => showToast(message, true));
+socket.on("game:error", ({ message }) => {
+  showToast(message, true);
+  restoreActions();
+});
 socket.on("room:state", (nextState) => {
   state = nextState;
   turnEndAt = Date.now() + nextState.turnRemainingMs;
@@ -192,10 +196,15 @@ function renderState() {
     ui.turnKicker.textContent = myTurn ? "SIRA SENDE" : `${current?.name ?? "—"} OYNUYOR`;
     ui.turnTitle.textContent = myTurn ? "HEDEFİNİ SEÇ" : "MASAYI İZLE";
     ui.lastAction.textContent = state.lastAction;
-    if (state.currentPlayerId && state.currentPlayerId !== previousCurrentPlayerId) announceTurn(current?.name ?? "—");
+    if (state.currentPlayerId && state.currentPlayerId !== previousCurrentPlayerId) {
+      hoveredPlayerId = null;
+      selectedTargetId = null;
+      ui.reticle.classList.add("hidden");
+      announceTurn(current?.name ?? "—");
+    }
     previousCurrentPlayerId = state.currentPlayerId;
     ui.targetList.innerHTML = state.players.filter((player) => player.alive).map((player) =>
-      `<button class="target-button ${player.id === state.viewerId ? "self" : ""}" data-target="${player.id}" ${myTurn ? "" : "disabled"}>${player.id === state.viewerId ? "KENDİNE" : escapeHtml(player.name)}</button>`
+      `<button class="target-button ${player.id === state.viewerId ? "self" : ""} ${player.id === selectedTargetId ? "selected" : ""}" data-target="${player.id}" ${myTurn ? "" : "disabled"}>${player.id === state.viewerId ? "KENDİNE" : escapeHtml(player.name)}</button>`
     ).join("");
     ui.targetList.querySelectorAll("button").forEach((button) => {
       button.addEventListener("pointerenter", () => setHoveredTarget(button.dataset.target));
@@ -203,14 +212,18 @@ function renderState() {
       button.addEventListener("focus", () => setHoveredTarget(button.dataset.target));
       button.addEventListener("blur", () => setHoveredTarget(null));
       button.addEventListener("click", () => {
+        selectedTargetId = button.dataset.target;
         setHoveredTarget(null);
+        ui.targetList.querySelectorAll("button").forEach((target) => target.classList.toggle("selected", target.dataset.target === selectedTargetId));
         socket.emit("game:shoot", { targetId: button.dataset.target });
         disableActions();
       });
     });
     ui.itemList.innerHTML = (me?.items ?? []).map((item) => {
       const info = itemInfo[item] ?? { name: item, mark: "·", description: item };
-      return `<button class="item-button" data-item="${item}" title="${info.description}" ${myTurn ? "" : "disabled"}><i>${info.mark}</i><span>${info.name}</span></button>`;
+      const usable = canUseItem(item, me);
+      const description = item === "adrenaline" && !usable ? "Rakiplerde çalınabilecek ekipman yok." : info.description;
+      return `<button class="item-button ${usable ? "" : "unavailable"}" data-item="${item}" title="${description}" ${myTurn && usable ? "" : "disabled"}><i>${info.mark}</i><span>${info.name}</span></button>`;
     }).join("") || "<span class='micro'>EKİPMAN YOK</span>";
     ui.itemList.querySelectorAll("button").forEach((button) => button.addEventListener("click", () => {
       socket.emit("game:item", { item: button.dataset.item });
@@ -222,7 +235,7 @@ function renderState() {
     ui.winnerName.textContent = winner?.name ?? "KAZANAN";
   }
   syncSeats(state.players);
-  syncItemProps(me?.items ?? []);
+  syncItemProps(state.players);
 }
 
 function announceTurn(name) {
@@ -237,6 +250,19 @@ function announceTurn(name) {
 function disableActions() {
   ui.targetList.querySelectorAll("button").forEach((button) => { button.disabled = true; });
   ui.itemList.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+}
+
+function canUseItem(item, me = state?.players.find((player) => player.id === state?.viewerId)) {
+  if (item !== "adrenaline") return true;
+  return Boolean(state?.players.some((player) => player.alive && player.id !== me?.id && player.items.length > 0));
+}
+
+function restoreActions() {
+  if (!state || state.phase !== "playing" || state.currentPlayerId !== state.viewerId) return;
+  ui.targetList.querySelectorAll("button").forEach((button) => { button.disabled = false; });
+  ui.itemList.querySelectorAll("button").forEach((button) => {
+    button.disabled = !canUseItem(button.dataset.item);
+  });
 }
 
 function escapeHtml(value) {
@@ -257,22 +283,29 @@ renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.toneMappingExposure = 1.28;
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x080807);
-scene.fog = new THREE.FogExp2(0x080807, 0.042);
+scene.background = new THREE.Color(0x11110f);
+scene.fog = new THREE.FogExp2(0x11100e, 0.028);
 const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, .1, 100);
 camera.position.set(8.6, 7.1, 10.8);
 camera.lookAt(0, -.2, 0);
 
-scene.add(new THREE.HemisphereLight(0x786e5b, 0x080807, .55));
-const keyLight = new THREE.SpotLight(0xffdca0, 95, 32, Math.PI / 5, .65, 1.4);
+scene.add(new THREE.HemisphereLight(0xb8ad91, 0x17130f, 1.08));
+const keyLight = new THREE.SpotLight(0xffdca0, 128, 34, Math.PI / 4.5, .68, 1.35);
 keyLight.position.set(-3, 10, 4);
 keyLight.castShadow = true;
 keyLight.shadow.mapSize.set(1024, 1024);
 scene.add(keyLight);
-const redLight = new THREE.PointLight(0xa82413, 18, 15, 2);
+const fillLight = new THREE.SpotLight(0xa9c8d8, 62, 30, Math.PI / 3, .75, 1.25);
+fillLight.position.set(8, 7, 6);
+fillLight.target.position.set(0, 0, 0);
+scene.add(fillLight, fillLight.target);
+const rimLight = new THREE.PointLight(0xffb45f, 30, 18, 2);
+rimLight.position.set(-5, 3.5, -2.5);
+scene.add(rimLight);
+const redLight = new THREE.PointLight(0xa82413, 12, 15, 2);
 redLight.position.set(5, 2, -4);
 scene.add(redLight);
 
@@ -356,45 +389,102 @@ for (let i = 0; i < 4; i += 1) {
 scene.add(table);
 
 const gun = new THREE.Group();
-const darkMetal = new THREE.MeshStandardMaterial({ color: 0x252725, roughness: .3, metalness: .8 });
-const wornMetal = new THREE.MeshStandardMaterial({ color: 0x5b5a51, roughness: .38, metalness: .65 });
-const wood = new THREE.MeshStandardMaterial({ color: 0x4a2416, roughness: .55, metalness: .05 });
-const barrel = new THREE.Mesh(new THREE.CylinderGeometry(.22, .27, 5.2, 14), darkMetal);
+const darkMetal = new THREE.MeshStandardMaterial({ color: 0x202322, roughness: .24, metalness: .9 });
+const wornMetal = new THREE.MeshStandardMaterial({ color: 0x686a65, roughness: .34, metalness: .78 });
+const gunBlack = new THREE.MeshStandardMaterial({ color: 0x0d0f0e, roughness: .42, metalness: .72 });
+const wood = new THREE.MeshStandardMaterial({ color: 0x6a321d, roughness: .48, metalness: .04 });
+const woodDark = new THREE.MeshStandardMaterial({ color: 0x32170f, roughness: .62, metalness: .02 });
+const brassDetail = new THREE.MeshStandardMaterial({ color: 0x9a793d, roughness: .34, metalness: .72 });
+
+const barrelAssembly = new THREE.Group();
+barrelAssembly.position.set(-1.03, .03, 0);
+const barrel = new THREE.Mesh(new THREE.CylinderGeometry(.18, .205, 3.8, 24), darkMetal);
 barrel.rotation.z = Math.PI / 2;
-barrel.position.x = -.3;
-barrel.castShadow = true;
-gun.add(barrel);
-const pump = new THREE.Mesh(new THREE.CylinderGeometry(.39, .39, 1.35, 12), wood);
-pump.rotation.z = Math.PI / 2;
-pump.position.set(.55, -.02, 0);
-pump.castShadow = true;
-gun.add(pump);
-const muzzle = new THREE.Mesh(new THREE.TorusGeometry(.225, .06, 8, 18), wornMetal);
+barrel.position.set(1.9, .13, 0);
+barrelAssembly.add(barrel);
+const magazineTube = new THREE.Mesh(new THREE.CylinderGeometry(.135, .15, 3.18, 20), gunBlack);
+magazineTube.rotation.z = Math.PI / 2;
+magazineTube.position.set(1.53, -.2, 0);
+barrelAssembly.add(magazineTube);
+const barrelRib = new THREE.Mesh(new THREE.BoxGeometry(3.35, .055, .13), wornMetal);
+barrelRib.position.set(1.69, .335, 0);
+barrelAssembly.add(barrelRib);
+const frontSight = new THREE.Mesh(new THREE.SphereGeometry(.075, 12, 8), brassDetail);
+frontSight.position.set(3.52, .405, 0);
+barrelAssembly.add(frontSight);
+const muzzle = new THREE.Mesh(new THREE.TorusGeometry(.19, .04, 10, 24), wornMetal);
 muzzle.rotation.y = Math.PI / 2;
-muzzle.position.x = 2.3;
-gun.add(muzzle);
-const receiver = new THREE.Mesh(new THREE.BoxGeometry(1.5, .75, .68), wornMetal);
-receiver.position.set(-1.75, -.05, 0);
-receiver.castShadow = true;
+muzzle.position.set(3.8, .13, 0);
+barrelAssembly.add(muzzle);
+const magazineCap = new THREE.Mesh(new THREE.CylinderGeometry(.17, .17, .12, 18), wornMetal);
+magazineCap.rotation.z = Math.PI / 2;
+magazineCap.position.set(3.14, -.2, 0);
+barrelAssembly.add(magazineCap);
+gun.add(barrelAssembly);
+
+const pump = new THREE.Group();
+pump.position.set(.35, -.17, 0);
+const pumpBody = new THREE.Mesh(new THREE.CylinderGeometry(.31, .34, 1.18, 16), woodDark);
+pumpBody.rotation.z = Math.PI / 2;
+pump.add(pumpBody);
+for (let x = -.46; x <= .46; x += .185) {
+  const rib = new THREE.Mesh(new THREE.TorusGeometry(.345, .018, 7, 18), wood);
+  rib.rotation.y = Math.PI / 2;
+  rib.position.x = x;
+  pump.add(rib);
+}
+gun.add(pump);
+
+const receiver = new THREE.Mesh(new THREE.BoxGeometry(1.32, .78, .7), wornMetal);
+receiver.position.set(-1.67, -.02, 0);
 gun.add(receiver);
-const stock = new THREE.Mesh(new THREE.BoxGeometry(2.5, .64, .78), wood);
-stock.position.set(-3.55, -.18, 0);
-stock.rotation.z = -.1;
-stock.castShadow = true;
+const receiverTop = new THREE.Mesh(new THREE.BoxGeometry(1.22, .1, .5), darkMetal);
+receiverTop.position.set(-1.62, .42, 0);
+gun.add(receiverTop);
+const ejectionPort = new THREE.Mesh(new THREE.BoxGeometry(.55, .27, .025), gunBlack);
+ejectionPort.position.set(-1.42, .08, .365);
+gun.add(ejectionPort);
+const loadingPort = new THREE.Mesh(new THREE.BoxGeometry(.58, .025, .33), gunBlack);
+loadingPort.position.set(-1.48, -.42, 0);
+gun.add(loadingPort);
+for (const x of [-1.92, -1.5]) {
+  const pin = new THREE.Mesh(new THREE.CylinderGeometry(.045, .045, .025, 12), gunBlack);
+  pin.rotation.x = Math.PI / 2;
+  pin.position.set(x, -.1, .37);
+  gun.add(pin);
+}
+
+const stock = new THREE.Mesh(new THREE.CylinderGeometry(.45, .3, 2.55, 8), wood);
+stock.rotation.z = Math.PI / 2 - .07;
+stock.position.set(-3.45, -.16, 0);
 gun.add(stock);
-const grip = new THREE.Mesh(new THREE.BoxGeometry(.55, 1.35, .62), wood);
-grip.position.set(-2.05, -.8, 0);
-grip.rotation.z = -.28;
-grip.castShadow = true;
+const cheekRest = new THREE.Mesh(new THREE.BoxGeometry(1.25, .13, .58), woodDark);
+cheekRest.position.set(-3.08, .16, 0);
+cheekRest.rotation.z = -.08;
+gun.add(cheekRest);
+const buttPlate = new THREE.Mesh(new THREE.BoxGeometry(.14, .86, .82), gunBlack);
+buttPlate.position.set(-4.72, -.25, 0);
+buttPlate.rotation.z = -.07;
+gun.add(buttPlate);
+const grip = new THREE.Mesh(new THREE.CylinderGeometry(.24, .31, 1.18, 10), woodDark);
+grip.position.set(-2.13, -.73, 0);
+grip.rotation.z = -.26;
 gun.add(grip);
-const triggerGuard = new THREE.Mesh(new THREE.TorusGeometry(.31, .055, 8, 14, Math.PI * 1.4), darkMetal);
-triggerGuard.rotation.set(Math.PI / 2, 0, -.55);
-triggerGuard.position.set(-1.55, -.56, 0);
+const triggerGuard = new THREE.Mesh(new THREE.TorusGeometry(.31, .052, 10, 20, Math.PI * 1.45), darkMetal);
+triggerGuard.rotation.set(Math.PI / 2, 0, -.58);
+triggerGuard.position.set(-1.58, -.55, 0);
 gun.add(triggerGuard);
+const trigger = new THREE.Mesh(new THREE.BoxGeometry(.05, .34, .08), brassDetail);
+trigger.position.set(-1.62, -.57, 0);
+trigger.rotation.z = -.25;
+gun.add(trigger);
+gun.traverse((object) => {
+  if (object.isMesh) object.castShadow = object.receiveShadow = true;
+});
 const muzzleLight = new THREE.PointLight(0xffb14a, 0, 6, 2);
-muzzleLight.position.set(2.55, 0, 0);
+muzzleLight.position.set(2.95, .15, 0);
 gun.add(muzzleLight);
-gun.position.set(0, -.2, 0);
+gun.position.set(0, -.16, 0);
 gun.rotation.y = 0;
 gun.rotation.z = .04;
 scene.add(gun);
@@ -451,10 +541,10 @@ const characterProfiles = [
 function makeCharacter(index) {
   const profile = characterProfiles[index];
   const seat = new THREE.Group();
-  const chairMaterial = new THREE.MeshStandardMaterial({ color: 0x241c16, roughness: .8 });
-  const clothing = new THREE.MeshStandardMaterial({ color: profile.coat, roughness: .86 });
-  const shirt = new THREE.MeshStandardMaterial({ color: profile.shirt, roughness: .9 });
-  const skin = new THREE.MeshStandardMaterial({ color: profile.skin, roughness: .87 });
+  const chairMaterial = new THREE.MeshStandardMaterial({ color: 0x3a2c22, roughness: .8 });
+  const clothing = new THREE.MeshStandardMaterial({ color: profile.coat, emissive: profile.coat, emissiveIntensity: .11, roughness: .8 });
+  const shirt = new THREE.MeshStandardMaterial({ color: profile.shirt, emissive: profile.shirt, emissiveIntensity: .08, roughness: .86 });
+  const skin = new THREE.MeshStandardMaterial({ color: profile.skin, emissive: 0x2c140d, emissiveIntensity: .13, roughness: .82 });
   const hairMaterial = new THREE.MeshStandardMaterial({ color: profile.hair, roughness: .95 });
   const accentMaterial = new THREE.MeshStandardMaterial({ color: profile.accent, emissive: profile.accent, emissiveIntensity: .65, roughness: .55 });
   const black = new THREE.MeshStandardMaterial({ color: 0x0c0c0b, roughness: .65, metalness: .2 });
@@ -529,11 +619,13 @@ function makeCharacter(index) {
     mesh(new THREE.BoxGeometry(.36, .26, .72), black, body, [side*.34, -1.05, -.25]);
   }
   seat.add(chairBack, chairSeat, body, headRig);
-  const activeRing = new THREE.Mesh(new THREE.TorusGeometry(.9, .035, 8, 32), new THREE.MeshStandardMaterial({ color: 0xd7ff3f, emissive: 0x728a1d, emissiveIntensity: 2, transparent: true, opacity: .8 }));
+  const activeRing = new THREE.Mesh(new THREE.TorusGeometry(.94, .055, 10, 40), new THREE.MeshStandardMaterial({ color: profile.accent, emissive: profile.accent, emissiveIntensity: 2.8, transparent: true, opacity: .92 }));
   activeRing.rotation.x = Math.PI / 2;
   activeRing.position.y = -.73;
   activeRing.visible = false;
-  seat.add(activeRing);
+  const seatGlow = new THREE.PointLight(profile.accent, 2.4, 3.2, 2);
+  seatGlow.position.set(0, 1.25, -1.05);
+  seat.add(activeRing, seatGlow);
   seat.userData.activeRing = activeRing;
   seat.userData.body = body;
   seat.userData.head = headRig;
@@ -560,11 +652,39 @@ for (let i = 0; i < 6; i += 1) {
   seats.push(seat);
 }
 
-const itemProps = new THREE.Group();
-itemProps.position.set(-.25, -.66, 2.4);
-scene.add(itemProps);
-let itemPropSignature = "";
+const itemTrays = [];
+const trayMaterial = new THREE.MeshStandardMaterial({ color: 0x181c18, roughness: .84, metalness: .08 });
+const trayEdgeMaterial = new THREE.MeshStandardMaterial({ color: 0x706149, roughness: .48, metalness: .36 });
+for (let i = 0; i < 6; i += 1) {
+  const angle = i / 6 * Math.PI * 2 + Math.PI / 2;
+  const tray = new THREE.Group();
+  const base = new THREE.Mesh(new THREE.BoxGeometry(2.25, .1, 1.02), trayMaterial.clone());
+  base.receiveShadow = true;
+  tray.add(base);
+  for (const z of [-.49, .49]) {
+    const edge = new THREE.Mesh(new THREE.BoxGeometry(2.35, .12, .055), trayEdgeMaterial);
+    edge.position.set(0, .08, z);
+    tray.add(edge);
+  }
+  for (const x of [-1.14, 1.14]) {
+    const edge = new THREE.Mesh(new THREE.BoxGeometry(.055, .12, 1.02), trayEdgeMaterial);
+    edge.position.set(x, .08, 0);
+    tray.add(edge);
+  }
+  const props = new THREE.Group();
+  props.position.y = .1;
+  tray.add(props);
+  tray.position.set(Math.cos(angle) * 3.65, -.72, Math.sin(angle) * 3.65);
+  tray.rotation.y = -angle + Math.PI / 2;
+  tray.userData.props = props;
+  tray.userData.signature = "";
+  tray.userData.base = base;
+  tray.visible = false;
+  scene.add(tray);
+  itemTrays.push(tray);
+}
 let itemPulseUntil = 0;
+let itemPulsePlayerId = null;
 
 function makeItemProp(type) {
   const prop = new THREE.Group();
@@ -619,21 +739,33 @@ function makeItemProp(type) {
   return prop;
 }
 
-function syncItemProps(items) {
-  const signature = items.join("|");
-  if (signature === itemPropSignature) return;
-  itemPropSignature = signature;
-  itemProps.traverse((object) => {
-    object.geometry?.dispose();
-    if (Array.isArray(object.material)) object.material.forEach((material) => material.dispose());
-    else object.material?.dispose();
-  });
-  itemProps.clear();
-  items.slice(0, 4).forEach((item, index) => {
-    const prop = makeItemProp(item);
-    prop.position.set((index - (Math.min(items.length, 4) - 1) / 2) * .95, 0, 0);
-    prop.rotation.y = (index - 1.5) * .12;
-    itemProps.add(prop);
+function syncItemProps(players) {
+  itemTrays.forEach((tray, playerIndex) => {
+    const player = players[playerIndex];
+    tray.visible = state?.phase === "playing" && Boolean(player?.alive);
+    if (!player) return;
+    tray.userData.base.material.color.set(player.id === state.viewerId ? 0x28331f : 0x181c18);
+    tray.userData.base.material.emissive.set(player.id === state.currentPlayerId ? 0x26330f : 0x000000);
+    tray.userData.base.material.emissiveIntensity = player.id === state.currentPlayerId ? .55 : 0;
+    const signature = player.items.join("|");
+    if (signature === tray.userData.signature) return;
+    tray.userData.signature = signature;
+    const props = tray.userData.props;
+    props.traverse((object) => {
+      object.geometry?.dispose();
+      if (Array.isArray(object.material)) object.material.forEach((material) => material.dispose());
+      else object.material?.dispose();
+    });
+    props.clear();
+    player.items.slice(0, 4).forEach((item, index) => {
+      const prop = makeItemProp(item);
+      const column = index % 2;
+      const row = Math.floor(index / 2);
+      prop.position.set((column - .5) * .92, .02, (row - .5) * .5);
+      prop.rotation.y = (column ? -.08 : .08) + (row ? .04 : -.04);
+      prop.scale.multiplyScalar(.82);
+      props.add(prop);
+    });
   });
 }
 
@@ -667,22 +799,20 @@ function syncSeats(players) {
   });
   shells.children.forEach((shell, index) => { shell.visible = state?.phase === "playing" && index < state.shellsRemaining; });
   const current = players.find((player) => player.id === state.currentPlayerId);
-  barrel.scale.y = current?.sawed ? .68 : 1;
-  barrel.position.x = current?.sawed ? -.72 : -.3;
-  muzzle.position.x = current?.sawed ? .46 : 2.3;
-  pump.position.x = current?.sawed ? -.1 : .55;
-  pendingGunPlayerId = state.currentPlayerId;
+  barrelAssembly.scale.x = current?.sawed ? .52 : 1;
+  pendingGunPlayerId = selectedTargetId ?? state.currentPlayerId;
 }
 
 function setHoveredTarget(playerId) {
   hoveredPlayerId = playerId;
-  ui.reticle.classList.toggle("hidden", !playerId);
+  const effectiveTargetId = hoveredPlayerId ?? selectedTargetId;
+  ui.reticle.classList.toggle("hidden", !effectiveTargetId);
   seats.forEach((seat, index) => {
     const id = state?.players[index]?.id;
-    seat.userData.activeRing.visible = id === state?.currentPlayerId || id === hoveredPlayerId;
+    seat.userData.activeRing.visible = id === state?.currentPlayerId || id === effectiveTargetId;
   });
-  if (playerId) aimGunAt(playerId);
-  else pendingGunPlayerId = state?.currentPlayerId ?? null;
+  pendingGunPlayerId = effectiveTargetId ?? state?.currentPlayerId ?? null;
+  if (pendingGunPlayerId) aimGunAt(pendingGunPlayerId);
 }
 
 let desiredCamera = new THREE.Vector3(8.6, 7.1, 10.8);
@@ -704,7 +834,7 @@ function aimGunAt(playerId) {
 function sceneMode(phase) {
   desiredCamera = phase === "playing" ? new THREE.Vector3(7.2, 6.4, 9.2) : new THREE.Vector3(8.6, 7.1, 10.8);
   gun.visible = phase !== "lobby";
-  itemProps.visible = phase === "playing";
+  itemTrays.forEach((tray, index) => { tray.visible = phase === "playing" && Boolean(state?.players[index]?.alive); });
 }
 sceneMode("lobby");
 
@@ -746,8 +876,9 @@ function animateShot(result) {
   }
 }
 
-function animateItem({ item }) {
+function animateItem({ actorId, item }) {
   itemPulseUntil = performance.now() + 650;
+  itemPulsePlayerId = actorId;
   const info = itemInfo[item];
   showToast(`${info?.name ?? "Ekipman"} kullanıldı.`);
   playTone(280, .13, "triangle", .055);
@@ -772,8 +903,9 @@ function frame() {
   gun.position.x = -Math.cos(gun.rotation.y) * gunRecoil * .36;
   gun.position.z = Math.sin(gun.rotation.y) * gunRecoil * .36;
   gun.position.y = -.2 + Math.sin(time * .7) * .014;
-  pump.position.x = (barrel.scale.y < 1 ? -.1 : .55) - pumpAction * .52;
-  muzzleLight.position.x = muzzle.position.x + .22;
+  pump.position.x = .35 - pumpAction * .52;
+  muzzleLight.position.x = barrelAssembly.position.x + muzzle.position.x * barrelAssembly.scale.x + .22;
+  muzzleLight.position.y = barrelAssembly.position.y + muzzle.position.y;
   muzzleLight.intensity = muzzleEnergy * 85;
   seats.forEach((seat, index) => {
     if (!seat.visible) return;
@@ -794,14 +926,18 @@ function frame() {
     seat.userData.rightHand.rotation.x = seat.userData.action * -.28;
     if (seat.userData.activeRing) seat.userData.activeRing.rotation.z = time * .7;
   });
-  const itemPulse = performance.now() < itemPulseUntil ? 1 + Math.sin(time * 28) * .12 : 1;
-  itemProps.scale.setScalar(itemPulse);
-  itemProps.children.forEach((prop, index) => { prop.rotation.y += .003 * (index % 2 ? 1 : -1); });
+  const itemPulseActive = performance.now() < itemPulseUntil;
+  itemTrays.forEach((tray, trayIndex) => {
+    const player = state?.players[trayIndex];
+    const itemPulse = itemPulseActive && player?.id === itemPulsePlayerId ? 1 + Math.sin(time * 28) * .1 : 1;
+    tray.userData.props.scale.setScalar(itemPulse);
+    tray.userData.props.children.forEach((prop, index) => { prop.rotation.y += .002 * (index % 2 ? 1 : -1); });
+  });
   dust.rotation.y = time * .008;
   fan.rotation.z = time * 1.35;
   monitorScreen.material.emissiveIntensity = 1.75 + Math.sin(time * 7.4) * .18 + Math.sin(time * 19.1) * .08;
   warningSprite.material.opacity = .82 + Math.sin(time * 5.3) * .12;
-  keyLight.intensity = 92 + Math.sin(time * 2.1) * 4 + Math.sin(time * 7.7) * 2;
+  keyLight.intensity = 124 + Math.sin(time * 2.1) * 4 + Math.sin(time * 7.7) * 2;
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }

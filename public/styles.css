@@ -165,6 +165,7 @@ input:focus { border-color: var(--acid); box-shadow: 0 0 0 1px var(--acid); }
 .target-button { height: 44px; border: 1px solid var(--line); background: rgba(255,255,255,.04); cursor: pointer; font-size: 9px; font-weight: 800; text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 8px; }
 .target-button.self { border-color: rgba(215,255,63,.5); color: var(--acid); }
 .target-button:hover:not(:disabled) { background: var(--rust); color: white; border-color: var(--rust); }
+.target-button.selected { background: var(--rust); color: white; border-color: #ff7a55; box-shadow: 0 0 0 1px rgba(255,122,85,.35), 0 0 22px rgba(212,75,45,.22); }
 .target-button:disabled { opacity: .25; cursor: not-allowed; }
 .item-list { display: flex; gap: 7px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .item-button { flex: 1; min-height: 48px; border: 1px dashed rgba(255,255,255,.22); background: transparent; cursor: pointer; color: #bbb7ad; font: 500 7px var(--mono); letter-spacing: .05em; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 4px 7px; }
@@ -172,6 +173,8 @@ input:focus { border-color: var(--acid); box-shadow: 0 0 0 1px var(--acid); }
 .item-button span { overflow: hidden; text-overflow: ellipsis; }
 .item-button:hover:not(:disabled) { border-color: var(--acid); color: var(--acid); }
 .item-button:disabled { opacity: .28; cursor: not-allowed; }
+.item-button.unavailable { border-color: rgba(212,75,45,.35); }
+.item-button.unavailable i { color: #77736a; }
 
 .winner-panel { text-align: center; left: 50%; right: auto; transform: translate(-50%, -45%); }
 .winner-panel h2 { font-size: 42px; color: var(--acid); }

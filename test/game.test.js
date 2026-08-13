@@ -99,6 +99,19 @@ test("telefon bilgi verir ve adrenalin rakip ekipmanı çalar", () => {
   assert.deepEqual(room.player("p2").items, []);
 });
 
+test("çalınacak ekipman yoksa adrenalin korunur ve oyun durumu bozulmaz", () => {
+  const room = new GameRoom("ABCDE", "p1", "Bir");
+  room.addPlayer("p2", "İki");
+  room.start("p1", 1000);
+  room.player("p1").items = ["adrenaline"];
+  room.player("p2").items = [];
+
+  assert.throws(() => room.useItem("p1", "adrenaline", 1200), /Çalınabilecek ekipman yok/);
+  assert.deepEqual(room.player("p1").items, ["adrenaline"]);
+  assert.equal(room.currentPlayerId, "p1");
+  assert.equal(room.phase, "playing");
+});
+
 test("oturum anahtarıyla yeniden bağlanma kimliği ve sırayı taşır", () => {
   const room = new RoomStore().create("old-socket", "Bir");
   room.addPlayer("p2", "İki");
